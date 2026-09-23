@@ -18,4 +18,3 @@ python train.py \
   experiment=demo_asbs \
   seed=${SEED} \
   exp_name=demo_asbs_seed${SEED} \
-  hydra.run.dir=results/demo_asbs/seed${SEED}
