@@ -200,18 +200,6 @@ class AdjointVEMatcher(AdjointMatcher):
         (B, D) = xt.shape
         assert t.shape == (B, 1) and adjoint.shape == (B, D)
 
-    def prepare_target(self, data, device):
-        x0 = data["x0"].to(device)
-        x1 = data["x1"].to(device)
-        adjoint1 = data["adjoint1"].to(device)
-
-        t = self.sample_t(x0).to(device)
-        xt = self.sde.sample_base_posterior(t, x0, x1)
-        adjoint = adjoint1 # const w.r.t. time in this case
-
-        self._check_target_shape(t, xt, adjoint)
-        return (t, xt), - adjoint
-
     # def prepare_target(self, data, device):
     #     x0 = data["x0"].to(device)
     #     x1 = data["x1"].to(device)
@@ -219,20 +207,32 @@ class AdjointVEMatcher(AdjointMatcher):
 
     #     t = self.sample_t(x0).to(device)
     #     xt = self.sde.sample_base_posterior(t, x0, x1)
-    #     adjoint = adjoint1  # const w.r.t. time in this case
-
-    #     sigma = self.sde.ref_sde.sigma
-    #     bridge_mean = (1 - t) * x0 + t * x1
-    #     energy = self.grad_term_cost.energy
-    #     E = energy.eval(xt)
-    #     if E.ndim == 1:
-    #         E = E.unsqueeze(-1)
-    #     dE = energy.grad_E(xt)
-    #     var = (sigma ** 2) * t * (1 - t)
-    #     psi = var * dE - E * (xt - bridge_mean)
+    #     adjoint = adjoint1 # const w.r.t. time in this case
 
     #     self._check_target_shape(t, xt, adjoint)
-    #     return (t, xt), (-adjoint + psi / sigma).detach()
+    #     return (t, xt), - adjoint
+
+    def prepare_target(self, data, device):
+        x0 = data["x0"].to(device)
+        x1 = data["x1"].to(device)
+        adjoint1 = data["adjoint1"].to(device)
+
+        t = self.sample_t(x0).to(device)
+        xt = self.sde.sample_base_posterior(t, x0, x1)
+        adjoint = adjoint1  # const w.r.t. time in this case
+
+        sigma = self.sde.ref_sde.sigma
+        bridge_mean = (1 - t) * x0 + t * x1
+        energy = self.grad_term_cost.energy
+        E = energy.eval(xt)
+        if E.ndim == 1:
+            E = E.unsqueeze(-1)
+        dE = energy.grad_E(xt)
+        var = (sigma ** 2) * t * (1 - t)
+        psi = var * dE - E * (xt - bridge_mean)
+
+        self._check_target_shape(t, xt, adjoint)
+        return (t, xt), (-adjoint + psi / sigma).detach()
 
 
 class AdjointVPMatcher(AdjointVEMatcher):
