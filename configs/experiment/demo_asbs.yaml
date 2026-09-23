@@ -50,4 +50,4 @@ corrector_matcher:
 
 
 # === eval & logging ===
-use_wandb: false
+use_wandb: true

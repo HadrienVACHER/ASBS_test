@@ -10,7 +10,7 @@ from torch import distributions
 ########################################
 
 class GMM1D(distributions.Distribution):
-    """ A simple bi-modal Gaussian mixtures in 1D for demo purposes
+    """ A simple tri-modal Gaussian mixtures in 1D for demo purposes
     """
     def __init__(self, device="cpu") -> None:
         super().__init__()
@@ -20,9 +20,9 @@ class GMM1D(distributions.Distribution):
         self._initialize_distr(device)
 
     def _initialize_distr(self, device) -> None:
-        loc = torch.tensor([-1, 2], device=device, dtype=torch.float).reshape(2, 1)
-        scale = torch.tensor([.7, .4], device=device, dtype=torch.float).reshape(2, 1)
-        weights = torch.tensor([.5, .5], device=device, dtype=torch.float).reshape(2)
+        loc = torch.tensor([-3, -2, 2], device=device, dtype=torch.float).reshape(3, 1)
+        scale = torch.tensor([0.4, 0.4, 0.4], device=device, dtype=torch.float).reshape(3, 1)
+        weights = torch.tensor([.3, .1, .6], device=device, dtype=torch.float).reshape(3)
 
         modes = distributions.Independent(
             distributions.Normal(loc, scale), 1

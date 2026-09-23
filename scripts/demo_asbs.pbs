@@ -1,0 +1,21 @@
+#!/bin/bash
+#PBS -N demo_asbs
+#PBS -P gs_ccds_haidang.dau
+#PBS -q gpu_as
+#PBS -l walltime=1:00:00
+#PBS -l select=1:ncpus=4:ngpus=1
+#PBS -j oe
+
+cd "$PBS_O_WORKDIR"
+
+module load anaconda/2025
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"
+conda activate BMS
+
+: "${SEED:?SEED must be set, e.g. qsub -v SEED=0 demo_asbs.pbs}"
+
+python train.py \
+  experiment=demo_asbs \
+  seed=${SEED} \
+  exp_name=demo_asbs_seed${SEED} \
+  hydra.run.dir=results/demo_asbs/seed${SEED}
