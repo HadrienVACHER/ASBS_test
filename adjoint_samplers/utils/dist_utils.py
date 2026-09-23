@@ -4,7 +4,6 @@ import math
 import torch
 from torch import distributions
 
-
 ########################################
 ######### Target Distributions #########
 ########################################
