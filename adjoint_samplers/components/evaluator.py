@@ -60,7 +60,12 @@ class DemoEvaluator:
         # Return figure
         self.fig.canvas.draw()
         PIL_img = fig2img(self.fig)
-        return {"hist_img": PIL_img}
+
+        target = self.dist.sample([samples.shape[0]]).detach().cpu().numpy().reshape(-1)
+        generated = samples.detach().cpu().numpy().reshape(-1)
+        w2 = pot.emd2_1d(target, generated) ** 0.5
+
+        return {"hist_img": PIL_img, "w2": w2}
 
 
 class SyntheticEenergyEvaluator:
