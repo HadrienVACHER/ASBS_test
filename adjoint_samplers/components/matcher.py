@@ -256,7 +256,7 @@ class AdjointVEMatcher(AdjointMatcher):
             E = E.unsqueeze(-1)
         dE = energy.grad_E(xt)
         alpha = 0.1
-        gamma = 2
+        gamma = 3
         residual = xt - bridge_mean
         tanh_aE = torch.tanh(alpha * E)
         d_tanh = alpha * (1 - tanh_aE ** 2)
