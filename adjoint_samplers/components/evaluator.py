@@ -42,7 +42,7 @@ class DemoEvaluator:
         x = (x.reshape(-1)).detach().cpu()
         self.ax.hist(x, bins=50, density=True)
         self.ax.set_xlim(-10, 10)
-        self.ax.set_ylim(0, 1)
+        self.ax.set_ylim(0, 0.4)
         self.ax.grid(True)
         self.ax.set_title(title)
 
