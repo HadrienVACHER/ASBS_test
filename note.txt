@@ -1,0 +1,5 @@
+scv1: E
+scv2: t^2E
+scv3: t^3E
+scv4: tanh(t^2E)
+scv5: tanh(t^3E)
