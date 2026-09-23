@@ -228,8 +228,9 @@ class AdjointVEMatcher(AdjointMatcher):
         if E.ndim == 1:
             E = E.unsqueeze(-1)
         dE = energy.grad_E(xt)
+        gamma = 2
         var = (sigma ** 2) * t * (1 - t)
-        psi = var * dE - E * (xt - bridge_mean)
+        psi = (t ** gamma) * (var * dE - E * (xt - bridge_mean))
 
         self._check_target_shape(t, xt, adjoint)
         return (t, xt), (-adjoint + psi / sigma).detach()
