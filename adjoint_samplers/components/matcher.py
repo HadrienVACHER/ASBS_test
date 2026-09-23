@@ -200,6 +200,8 @@ class AdjointVEMatcher(AdjointMatcher):
         (B, D) = xt.shape
         assert t.shape == (B, 1) and adjoint.shape == (B, D)
 
+
+    # # original prepare_target
     # def prepare_target(self, data, device):
     #     x0 = data["x0"].to(device)
     #     x1 = data["x1"].to(device)
@@ -212,6 +214,7 @@ class AdjointVEMatcher(AdjointMatcher):
     #     self._check_target_shape(t, xt, adjoint)
     #     return (t, xt), - adjoint
 
+    # scv1
     def prepare_target(self, data, device):
         x0 = data["x0"].to(device)
         x1 = data["x1"].to(device)
@@ -228,12 +231,41 @@ class AdjointVEMatcher(AdjointMatcher):
         if E.ndim == 1:
             E = E.unsqueeze(-1)
         dE = energy.grad_E(xt)
-        gamma = 2
+        gamma = 3
         var = (sigma ** 2) * t * (1 - t)
         psi = (t ** gamma) * (var * dE - E * (xt - bridge_mean))
 
         self._check_target_shape(t, xt, adjoint)
         return (t, xt), (-adjoint + psi / sigma).detach()
+
+    # # scv2
+    # def prepare_target(self, data, device):
+    #     x0 = data["x0"].to(device)
+    #     x1 = data["x1"].to(device)
+    #     adjoint1 = data["adjoint1"].to(device)
+
+    #     t = self.sample_t(x0).to(device)
+    #     xt = self.sde.sample_base_posterior(t, x0, x1)
+    #     adjoint = adjoint1  # const w.r.t. time in this case
+
+    #     sigma = self.sde.ref_sde.sigma
+    #     bridge_mean = (1 - t) * x0 + t * x1
+    #     energy = self.grad_term_cost.energy
+    #     E = energy.eval(xt)
+    #     if E.ndim == 1:
+    #         E = E.unsqueeze(-1)
+    #     dE = energy.grad_E(xt)
+    #     alpha = 0.1
+    #     gamma = 2
+    #     residual = xt - bridge_mean
+    #     tanh_aE = torch.tanh(alpha * E)
+    #     d_tanh = alpha * (1 - tanh_aE ** 2)
+    #     psi = (t ** gamma) * (
+    #         (sigma ** 2) * t * (1 - t) * d_tanh * dE
+    #         - tanh_aE * residual
+    #     )
+    #     self._check_target_shape(t, xt, adjoint)
+    #     return (t, xt), (-adjoint + psi / sigma).detach()
 
 
 class AdjointVPMatcher(AdjointVEMatcher):
