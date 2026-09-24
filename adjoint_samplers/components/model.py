@@ -493,9 +493,9 @@ class NeuralSCV(nn.Module):
             nn.SiLU(),
             nn.Linear(hidden, 1),
         )
-        last = self.net[-1]
-        nn.init.normal_(last.weight, std=1e-5)
-        nn.init.constant_(last.bias, 1e-5)
+        # last = self.net[-1]
+        # nn.init.normal_(last.weight, std=1e-5)
+        # nn.init.constant_(last.bias, 1e-5)
 
     def forward(self, xt: torch.Tensor, t: torch.Tensor, e: torch.Tensor) -> torch.Tensor:
         return self.net(torch.cat([xt, t, e], dim=-1))
