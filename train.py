@@ -192,13 +192,13 @@ def main(cfg):
             # Eval epoch according to the frequency
             # otherwise eval at the end of adjoint matching
             if "eval_freq" in cfg:
-                eval_this_epoch = epoch % cfg.eval_freq == 0
+                eval_this_epoch = epoch > 0 and epoch % cfg.eval_freq == 0
             else:
                 eval_this_epoch = train_utils.is_last_am_epoch(epoch, cfg)
+            plot_this_epoch = "plot_freq" in cfg and epoch > 0 and epoch % cfg.plot_freq == 0
 
             if distributed_mode.is_main_process() and eval_this_epoch:
-                # eval only after adjoint training
-                if stage == "adjoint":
+                if stage == "adjoint" or "plot_freq" in cfg:
                     n_gen_samples = 0
                     x1_list = []
                     while n_gen_samples < cfg.num_eval_samples:
@@ -206,7 +206,6 @@ def main(cfg):
                         x0 = source.sample([B,]).to(device)
                         timesteps = train_utils.get_timesteps(**cfg.timesteps).to(x0)
 
-                        # model samples
                         x0, x1 = sdeint(
                             sde,
                             x0,
@@ -222,7 +221,10 @@ def main(cfg):
                         ))
 
                     samples = torch.cat(x1_list, dim=0)
-                    eval_dict = evaluator(samples)
+                    if "plot_freq" in cfg:
+                        eval_dict = evaluator(samples, plot=plot_this_epoch)
+                    else:
+                        eval_dict = evaluator(samples)
                     print(f"Evaluated @{epoch=}!")
 
                     if "hist_img" in eval_dict:

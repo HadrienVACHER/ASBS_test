@@ -50,5 +50,7 @@ corrector_matcher:
 
 
 # === eval & logging ===
-eval_freq: 250
+# === eval & logging ===
+eval_freq: 100
+plot_freq: 500
 use_wandb: true

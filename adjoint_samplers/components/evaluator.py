@@ -46,26 +46,23 @@ class DemoEvaluator:
         self.ax.grid(True)
         self.ax.set_title(title)
 
-    def __call__(self, samples: torch.Tensor) -> Dict:
-        # Plot target samples for reference
-        if self.subplot_idx == 0:
-            target_samples = self.dist.sample([10000,]).cpu()
-            self.plot_hist(target_samples, title="Target")
+    def __call__(self, samples: torch.Tensor, plot: bool = True) -> Dict:
+        result = {}
+        if plot:
+            if self.subplot_idx == 0:
+                target_samples = self.dist.sample([10000,]).cpu()
+                self.plot_hist(target_samples, title="Target")
+                self.subplot_idx += 1
+
+            self.plot_hist(samples.cpu())
             self.subplot_idx += 1
-
-        # Plot model samples
-        self.plot_hist(samples.cpu())
-        self.subplot_idx += 1
-
-        # Return figure
-        self.fig.canvas.draw()
-        PIL_img = fig2img(self.fig)
+            self.fig.canvas.draw()
+            result["hist_img"] = fig2img(self.fig)
 
         target = self.dist.sample([samples.shape[0]]).detach().cpu().numpy().reshape(-1)
         generated = samples.detach().cpu().numpy().reshape(-1)
-        w2 = pot.emd2_1d(target, generated) ** 0.5
-
-        return {"hist_img": PIL_img, "w2": w2}
+        result["w2"] = pot.emd2_1d(target, generated) ** 0.5
+        return result
 
 
 class SyntheticEenergyEvaluator:
