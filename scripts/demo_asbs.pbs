@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -N asbs_dw4
+#PBS -N demo_asbs
 #PBS -P gs_ccds_haidang.dau
 #PBS -q gpu_as
 #PBS -l walltime=04:00:00
@@ -31,4 +31,4 @@ echo "Exécution sur le nœud : $(hostname) à $(date)"
 nvidia-smi -L
 
 # --- Lancement de l'expérience ---
-python train.py experiment=dw4
+python train.py experiment=demo_asbs
