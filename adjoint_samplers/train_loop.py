@@ -10,6 +10,8 @@ from torchmetrics.aggregation import MeanMetric
 import adjoint_samplers.utils.train_utils as train_utils
 from adjoint_samplers.components.matcher import Matcher
 
+import torch.nn.functional as F
+
 
 def cycle(iterable):
     while True:
@@ -44,16 +46,51 @@ def train_one_epoch(
 
     loader = iter(cycle(dataloader))
 
+    # model.train(True)
+    # for _ in range(cfg.train_itr_per_epoch):
+    #     optimizer.zero_grad()
+
+    #     data = next(loader)
+
+    #     input, target = matcher.prepare_target(data, device)
+    #     output = model(*input)
+
+    #     loss = loss_scale * ((output - target)**2).mean()
+    #     loss.backward()
+
+    #     if cfg.clip_grad_norm:
+    #         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1e20)
+
+    #     optimizer.step()
+
+    #     epoch_loss.update(loss.item())
+    #     if lr_schedule:
+    #         lr_schedule.step()
+
     model.train(True)
     for _ in range(cfg.train_itr_per_epoch):
-        optimizer.zero_grad()
-
         data = next(loader)
 
-        input, target = matcher.prepare_target(data, device)
+        input, target, *extra = matcher.prepare_target(data, device)
         output = model(*input)
 
-        loss = loss_scale * ((output - target)**2).mean()
+        if extra:
+            phi = extra[0]
+            t = input[0]
+
+            # Step A: fit the gate to the current residual u + a
+            c_t = matcher.temporal_gate(t)
+            target_omega = (output - target).detach()
+            loss_omega = F.mse_loss(c_t * phi, target_omega)
+            matcher.gate_optimizer.zero_grad()
+            loss_omega.backward()
+            matcher.gate_optimizer.step()
+
+            # Step B: drift target -(a - c * phi)
+            target = (target + c_t.detach() * phi).detach()
+
+        optimizer.zero_grad()
+        loss = loss_scale * ((output - target) ** 2).mean()
         loss.backward()
 
         if cfg.clip_grad_norm:

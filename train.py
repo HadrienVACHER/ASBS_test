@@ -16,6 +16,8 @@ from adjoint_samplers.train_loop import train_one_epoch
 import adjoint_samplers.utils.train_utils as train_utils
 import adjoint_samplers.utils.distributed_mode as distributed_mode
 
+from adjoint_samplers.components.model import TemporalGate
+
 
 cudnn.benchmark = True
 
@@ -79,6 +81,13 @@ def main(cfg):
             cfg.adjoint_matcher,
             grad_term_cost=grad_term_cost,
             sde=sde,
+        )
+
+        # to hide if baseline
+        temporal_gate = TemporalGate().to(device)
+        adjoint_matcher.temporal_gate = temporal_gate
+        adjoint_matcher.gate_optimizer = torch.optim.Adam(
+            temporal_gate.parameters(), lr=1e-3
         )
 
 

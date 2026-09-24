@@ -464,3 +464,21 @@ def unsorted_segment_mean(data, segment_ids, num_segments):
     result.scatter_add_(0, segment_ids, data)
     count.scatter_add_(0, segment_ids, torch.ones_like(data))
     return result / count.clamp(min=1)
+
+
+class TemporalGate(nn.Module):
+    def __init__(self, hidden: int = 16):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(1, hidden),
+            nn.SiLU(),
+            nn.Linear(hidden, hidden),
+            nn.SiLU(),
+            nn.Linear(hidden, 1),
+        )
+        # last = self.net[-1]
+        # nn.init.normal_(last.weight, std=1e-5)
+        # nn.init.constant_(last.bias, 1e-5)
+
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        return t * (1 - t) * self.net(t)
