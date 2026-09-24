@@ -89,13 +89,6 @@ def main(cfg):
             sde=sde,
         )
 
-        # # to hide if baseline
-        # temporal_gate = TemporalGate().to(device)
-        # adjoint_matcher.temporal_gate = temporal_gate
-        # adjoint_matcher.gate_optimizer = torch.optim.Adam(
-        #     temporal_gate.parameters(), lr=1e-3
-        # )
-
         neural_scv = NeuralSCV().to(device)
         adjoint_matcher.neural_scv = neural_scv
         adjoint_matcher.scv_optimizer = torch.optim.Adam(
