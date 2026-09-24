@@ -24,7 +24,7 @@ sigma: 0.3
 
 
 # === training ===
-num_epochs: 7000
+num_epochs: 10000
 
 max_grad_E_norm: null
 
