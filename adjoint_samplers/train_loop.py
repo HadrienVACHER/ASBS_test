@@ -74,20 +74,37 @@ def train_one_epoch(
         input, target, *extra = matcher.prepare_target(data, device)
         output = model(*input)
 
+        # if extra:
+        #     phi = extra[0]
+        #     t = input[0]
+
+        #     # Step A: fit the gate to the current residual u + a
+        #     c_t = matcher.temporal_gate(t)
+        #     target_omega = (output - target).detach()
+        #     loss_omega = F.mse_loss(c_t * phi, target_omega)
+        #     matcher.gate_optimizer.zero_grad()
+        #     loss_omega.backward()
+        #     matcher.gate_optimizer.step()
+
+        #     # Step B: drift target -(a - c * phi)
+        #     target = (target + c_t.detach() * phi).detach()
+
         if extra:
             phi = extra[0]
-            t = input[0]
 
-            # Step A: fit the gate to the current residual u + a
-            c_t = matcher.temporal_gate(t)
+            # Step A: fit the neural SCV to the current residual u + a
             target_omega = (output - target).detach()
-            loss_omega = F.mse_loss(c_t * phi, target_omega)
-            matcher.gate_optimizer.zero_grad()
+            loss_omega = F.mse_loss(phi, target_omega)
+            matcher.scv_optimizer.zero_grad()
             loss_omega.backward()
-            matcher.gate_optimizer.step()
+            matcher.scv_optimizer.step()
 
-            # Step B: drift target -(a - c * phi)
-            target = (target + c_t.detach() * phi).detach()
+            # Step B: drift target -(a - phi)
+            target = (target + phi.detach()).detach()
+
+        optimizer.zero_grad()
+        loss = loss_scale * ((output - target) ** 2).mean()
+        loss.backward()
 
         optimizer.zero_grad()
         loss = loss_scale * ((output - target) ** 2).mean()

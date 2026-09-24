@@ -16,7 +16,9 @@ from adjoint_samplers.train_loop import train_one_epoch
 import adjoint_samplers.utils.train_utils as train_utils
 import adjoint_samplers.utils.distributed_mode as distributed_mode
 
-from adjoint_samplers.components.model import TemporalGate
+# from adjoint_samplers.components.model import TemporalGate
+
+from adjoint_samplers.components.model import NeuralSCV
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -87,11 +89,17 @@ def main(cfg):
             sde=sde,
         )
 
-        # to hide if baseline
-        temporal_gate = TemporalGate().to(device)
-        adjoint_matcher.temporal_gate = temporal_gate
-        adjoint_matcher.gate_optimizer = torch.optim.Adam(
-            temporal_gate.parameters(), lr=1e-3
+        # # to hide if baseline
+        # temporal_gate = TemporalGate().to(device)
+        # adjoint_matcher.temporal_gate = temporal_gate
+        # adjoint_matcher.gate_optimizer = torch.optim.Adam(
+        #     temporal_gate.parameters(), lr=1e-3
+        # )
+
+        neural_scv = NeuralSCV().to(device)
+        adjoint_matcher.neural_scv = neural_scv
+        adjoint_matcher.scv_optimizer = torch.optim.Adam(
+            neural_scv.parameters(), lr=1e-3
         )
 
 
