@@ -24,7 +24,7 @@ class DemoEvaluator:
         self.dist = energy.dist
 
         # Plot target samples
-        self.fig, axes = get_fig_axes(ncol=6, nrow=10, ax_length_in=3)
+        self.fig, axes = get_fig_axes(ncol=5, nrow=10, ax_length_in=3)
         self.axes = axes.reshape(-1)
         self.subplot_idx = 0
 

@@ -34,7 +34,7 @@ adjoint_matcher:
   buffer_size: 10000
   duplicates: 10
   resample_size: 512
-  num_epochs_per_stage: 250
+  num_epochs_per_stage: 50
   optim:
     lr: 1e-3
     weight_decay: 1e-7
@@ -43,11 +43,12 @@ corrector_matcher:
   buffer_size: 10000
   duplicates: 10
   resample_size: 512
-  num_epochs_per_stage: 250
+  num_epochs_per_stage: 50
   optim:
     lr: 1e-3
     weight_decay: 1e-7
 
 
 # === eval & logging ===
+eval_freq: 250
 use_wandb: true
