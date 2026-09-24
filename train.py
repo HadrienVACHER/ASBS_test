@@ -18,6 +18,10 @@ import adjoint_samplers.utils.distributed_mode as distributed_mode
 
 from adjoint_samplers.components.model import TemporalGate
 
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+torch.set_float32_matmul_precision('high')
+
 
 cudnn.benchmark = True
 
