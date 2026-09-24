@@ -34,7 +34,7 @@ adjoint_matcher:
   buffer_size: 10000
   duplicates: 10
   resample_size: 512
-  num_epochs_per_stage: 60
+  num_epochs_per_stage: 250
   optim:
     lr: 1e-3
     weight_decay: 1e-7
@@ -43,7 +43,7 @@ corrector_matcher:
   buffer_size: 10000
   duplicates: 10
   resample_size: 512
-  num_epochs_per_stage: 60
+  num_epochs_per_stage: 250
   optim:
     lr: 1e-3
     weight_decay: 1e-7

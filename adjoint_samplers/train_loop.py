@@ -106,10 +106,6 @@ def train_one_epoch(
         loss = loss_scale * ((output - target) ** 2).mean()
         loss.backward()
 
-        optimizer.zero_grad()
-        loss = loss_scale * ((output - target) ** 2).mean()
-        loss.backward()
-
         if cfg.clip_grad_norm:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1e20)
 
