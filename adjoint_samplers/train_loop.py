@@ -126,6 +126,8 @@ def train_one_epoch(
         epoch_loss.update(loss.item())
         if lr_schedule:
             lr_schedule.step()
+        if hasattr(matcher, "scv_scheduler"):
+            matcher.scv_scheduler.step()
 
     stats = {"loss": float(epoch_loss.compute().detach().cpu())}
     if saw_cv:

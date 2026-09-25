@@ -97,7 +97,6 @@ def main(cfg):
 
 
         print("Instantiating optimizer...")
-        lr_schedule = None # TODO(ghliu) add scheduler
         if corrector is not None:
             optimizer = torch.optim.Adam([
                 {'params': controller.parameters(), **cfg.adjoint_matcher.optim},
@@ -107,7 +106,17 @@ def main(cfg):
             optimizer = torch.optim.Adam(
                 controller.parameters(), **cfg.adjoint_matcher.optim,
             )
+            
+        t_max = cfg.num_epochs * cfg.train_itr_per_epoch
+        lr_schedule = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=t_max, eta_min=0.0
+        )
+        adjoint_matcher.scv_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            adjoint_matcher.scv_optimizer, T_max=t_max, eta_min=0.0
+        )
 
+        if corrector_matcher is not None:
+            corrector_matcher.scv_scheduler = adjoint_matcher.scv_scheduler
 
         checkpoint_path = Path(cfg.checkpoint or "checkpoints/checkpoint_latest.pt")
         checkpoint_path.parent.mkdir(exist_ok=True)
