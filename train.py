@@ -181,6 +181,10 @@ def main(cfg):
                 log_dict[f"{stage}_cv_bias"] = stats["cv_bias"]
                 log_dict[f"{stage}_cv_var"] = stats["cv_var"]
                 log_dict[f"{stage}_raw_var"] = stats["raw_var"]
+                log_dict[f"{stage}_target_mag"] = stats["target_mag"]
+                log_dict[f"{stage}_relative_bias"] = stats["relative_bias"]
+                log_dict[f"{stage}_cv_mse_cost"] = stats["cv_mse_cost"]
+                log_dict[f"{stage}_var_gain"] = stats["var_gain"]
             writer.log(log_dict, step=epoch)
 
             print("[{0} | {1}] {2}".format(

@@ -47,6 +47,10 @@ def train_one_epoch(
     cv_bias = MeanMetric().to(device, non_blocking=True)
     cv_var = MeanMetric().to(device, non_blocking=True)
     raw_var = MeanMetric().to(device, non_blocking=True)
+    target_mag = MeanMetric().to(device, non_blocking=True)
+    relative_bias = MeanMetric().to(device, non_blocking=True)
+    cv_mse_cost = MeanMetric().to(device, non_blocking=True)
+    var_gain = MeanMetric().to(device, non_blocking=True)
     saw_cv = False
 
     loader = iter(cycle(dataloader))
@@ -107,9 +111,19 @@ def train_one_epoch(
             phi_det = phi.detach()
             residual = (output - target).detach()
             saw_cv = True
-            cv_bias.update(phi_det.mean())
-            cv_var.update((residual - phi_det).var(unbiased=False))
-            raw_var.update(residual.var(unbiased=False))
+
+            bias = phi_det.mean()
+            mag = target.detach().abs().mean()
+            raw = residual.var(unbiased=False)
+            controlled = (residual - phi_det).var(unbiased=False)
+            target_mag.update(mag)
+            relative_bias.update(bias.abs() / (mag + 1e-8))
+            cv_mse_cost.update(bias ** 2)
+            var_gain.update(raw - controlled)
+
+            cv_bias.update(bias)
+            cv_var.update(controlled)
+            raw_var.update(raw)
 
             # Step B: drift target -(a - phi)
             target = (target + phi.detach()).detach()
@@ -134,4 +148,8 @@ def train_one_epoch(
         stats["cv_bias"] = float(cv_bias.compute().detach().cpu())
         stats["cv_var"] = float(cv_var.compute().detach().cpu())
         stats["raw_var"] = float(raw_var.compute().detach().cpu())
+        stats["target_mag"] = float(target_mag.compute().detach().cpu())
+        stats["relative_bias"] = float(relative_bias.compute().detach().cpu())
+        stats["cv_mse_cost"] = float(cv_mse_cost.compute().detach().cpu())
+        stats["var_gain"] = float(var_gain.compute().detach().cpu())
     return stats
