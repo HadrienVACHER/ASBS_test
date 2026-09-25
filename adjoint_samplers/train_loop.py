@@ -55,7 +55,7 @@ def train_one_epoch(
     var_gain = MeanMetric().to(device, non_blocking=True)
     saw_cv = False
 
-    lambda_scv_metric = MeanMetric().to(device, non_blocking=True)
+    # lambda_scv_metric = MeanMetric().to(device, non_blocking=True)
 
     loader = iter(cycle(dataloader))
 
@@ -130,13 +130,15 @@ def train_one_epoch(
             raw_var.update(raw)
 
             # Step B: drift target -(a - phi)
-            progress = (epoch * cfg.train_itr_per_epoch + itr) / (
-                cfg.num_epochs * cfg.train_itr_per_epoch
-            )
-            lambda_scv = 0.5 * (1.0 + math.cos(math.pi * progress))
-            lambda_scv_metric.update(lambda_scv)
+            # progress = (epoch * cfg.train_itr_per_epoch + itr) / (
+            #     cfg.num_epochs * cfg.train_itr_per_epoch
+            # )
+            # lambda_scv = 0.5 * (1.0 + math.cos(math.pi * progress))
+            # lambda_scv_metric.update(lambda_scv)
 
-            target = (target + (lambda_scv * phi).detach()).detach()
+            # target = (target + (lambda_scv * phi).detach()).detach()
+
+            target = (target + phi.detach()).detach()
 
         optimizer.zero_grad()
         loss = loss_scale * ((output - target) ** 2).mean()
@@ -148,10 +150,10 @@ def train_one_epoch(
         optimizer.step()
 
         epoch_loss.update(loss.item())
-        if lr_schedule:
-            lr_schedule.step()
-        if hasattr(matcher, "scv_scheduler"):
-            matcher.scv_scheduler.step()
+        # if lr_schedule:
+        #     lr_schedule.step()
+        # if hasattr(matcher, "scv_scheduler"):
+        #     matcher.scv_scheduler.step()
 
     stats = {"loss": float(epoch_loss.compute().detach().cpu())}
     if saw_cv:
@@ -162,5 +164,5 @@ def train_one_epoch(
         stats["relative_bias"] = float(relative_bias.compute().detach().cpu())
         stats["cv_mse_cost"] = float(cv_mse_cost.compute().detach().cpu())
         stats["var_gain"] = float(var_gain.compute().detach().cpu())
-        stats["lambda_scv"] = float(lambda_scv_metric.compute().detach().cpu())
+        # stats["lambda_scv"] = float(lambda_scv_metric.compute().detach().cpu())
     return stats

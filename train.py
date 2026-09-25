@@ -106,17 +106,6 @@ def main(cfg):
             optimizer = torch.optim.Adam(
                 controller.parameters(), **cfg.adjoint_matcher.optim,
             )
-            
-        t_max = cfg.num_epochs * cfg.train_itr_per_epoch
-        lr_schedule = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=t_max, eta_min=0.0
-        )
-        adjoint_matcher.scv_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            adjoint_matcher.scv_optimizer, T_max=t_max, eta_min=0.0
-        )
-
-        if corrector_matcher is not None:
-            corrector_matcher.scv_scheduler = adjoint_matcher.scv_scheduler
 
         checkpoint_path = Path(cfg.checkpoint or "checkpoints/checkpoint_latest.pt")
         checkpoint_path.parent.mkdir(exist_ok=True)
@@ -161,6 +150,7 @@ def main(cfg):
 
 
         print(f"Starting from {start_epoch}/{cfg.num_epochs} epochs...")
+        lr_schedule = None
         for epoch in range(start_epoch, cfg.num_epochs):
             stage = train_utils.determine_stage(epoch, cfg)
 
@@ -185,7 +175,7 @@ def main(cfg):
                 log_dict[f"{stage}_relative_bias"] = stats["relative_bias"]
                 log_dict[f"{stage}_cv_mse_cost"] = stats["cv_mse_cost"]
                 log_dict[f"{stage}_var_gain"] = stats["var_gain"]
-                log_dict[f"{stage}_lambda_scv"] = stats["lambda_scv"]
+                # log_dict[f"{stage}_lambda_scv"] = stats["lambda_scv"]
             writer.log(log_dict, step=epoch)
 
             print("[{0} | {1}] {2}".format(
