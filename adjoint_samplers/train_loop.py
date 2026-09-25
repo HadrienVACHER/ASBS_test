@@ -44,6 +44,11 @@ def train_one_epoch(
     dataloader = matcher.build_dataloader(cfg.train_batch_size)
     epoch_loss = MeanMetric().to(device, non_blocking=True)
 
+    cv_bias = MeanMetric().to(device, non_blocking=True)
+    cv_var = MeanMetric().to(device, non_blocking=True)
+    raw_var = MeanMetric().to(device, non_blocking=True)
+    saw_cv = False
+
     loader = iter(cycle(dataloader))
 
     # model.train(True)
@@ -99,6 +104,13 @@ def train_one_epoch(
             loss_omega.backward()
             matcher.scv_optimizer.step()
 
+            phi_det = phi.detach()
+            residual = (output - target).detach()
+            saw_cv = True
+            cv_bias.update(phi_det.mean())
+            cv_var.update((residual - phi_det).var(unbiased=False))
+            raw_var.update(residual.var(unbiased=False))
+
             # Step B: drift target -(a - phi)
             target = (target + phi.detach()).detach()
 
@@ -115,4 +127,9 @@ def train_one_epoch(
         if lr_schedule:
             lr_schedule.step()
 
-    return float(epoch_loss.compute().detach().cpu())
+    stats = {"loss": float(epoch_loss.compute().detach().cpu())}
+    if saw_cv:
+        stats["cv_bias"] = float(cv_bias.compute().detach().cpu())
+        stats["cv_var"] = float(cv_var.compute().detach().cpu())
+        stats["raw_var"] = float(raw_var.compute().detach().cpu())
+    return stats

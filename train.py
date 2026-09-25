@@ -160,21 +160,19 @@ def main(cfg):
                 "corrector": (corrector_matcher, corrector),
             }.get(stage)
 
-            loss = train_one_epoch(
-                matcher,
-                model,
-                source,
-                optimizer,
-                lr_schedule,
-                epoch,
-                device,
-                cfg
+            stats = train_one_epoch(
+                matcher, model, source, optimizer, lr_schedule, epoch, device, cfg
             )
-
-            writer.log({
+            loss = stats["loss"]
+            log_dict = {
                 f"{stage}_loss": loss,
                 f"{stage}_buffer_size": len(matcher.buffer),
-            }, step=epoch)
+            }
+            if "cv_bias" in stats:
+                log_dict[f"{stage}_cv_bias"] = stats["cv_bias"]
+                log_dict[f"{stage}_cv_var"] = stats["cv_var"]
+                log_dict[f"{stage}_raw_var"] = stats["raw_var"]
+            writer.log(log_dict, step=epoch)
 
             print("[{0} | {1}] {2}".format(
                 cyan(  f"{stage:<7}"),
