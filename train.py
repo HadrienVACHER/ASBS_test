@@ -185,6 +185,7 @@ def main(cfg):
                 log_dict[f"{stage}_relative_bias"] = stats["relative_bias"]
                 log_dict[f"{stage}_cv_mse_cost"] = stats["cv_mse_cost"]
                 log_dict[f"{stage}_var_gain"] = stats["var_gain"]
+                log_dict[f"{stage}_lambda_scv"] = stats["lambda_scv"]
             writer.log(log_dict, step=epoch)
 
             print("[{0} | {1}] {2}".format(

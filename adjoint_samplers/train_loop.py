@@ -12,6 +12,8 @@ from adjoint_samplers.components.matcher import Matcher
 
 import torch.nn.functional as F
 
+import math
+
 
 def cycle(iterable):
     while True:
@@ -53,6 +55,8 @@ def train_one_epoch(
     var_gain = MeanMetric().to(device, non_blocking=True)
     saw_cv = False
 
+    lambda_scv_metric = MeanMetric().to(device, non_blocking=True)
+
     loader = iter(cycle(dataloader))
 
     # model.train(True)
@@ -77,7 +81,7 @@ def train_one_epoch(
     #         lr_schedule.step()
 
     model.train(True)
-    for _ in range(cfg.train_itr_per_epoch):
+    for itr in range(cfg.train_itr_per_epoch):
         data = next(loader)
 
         input, target, *extra = matcher.prepare_target(data, device)
@@ -126,7 +130,13 @@ def train_one_epoch(
             raw_var.update(raw)
 
             # Step B: drift target -(a - phi)
-            target = (target + phi.detach()).detach()
+            progress = (epoch * cfg.train_itr_per_epoch + itr) / (
+                cfg.num_epochs * cfg.train_itr_per_epoch
+            )
+            lambda_scv = 0.5 * (1.0 + math.cos(math.pi * progress))
+            lambda_scv_metric.update(lambda_scv)
+
+            target = (target + (lambda_scv * phi).detach()).detach()
 
         optimizer.zero_grad()
         loss = loss_scale * ((output - target) ** 2).mean()
@@ -152,4 +162,5 @@ def train_one_epoch(
         stats["relative_bias"] = float(relative_bias.compute().detach().cpu())
         stats["cv_mse_cost"] = float(cv_mse_cost.compute().detach().cpu())
         stats["var_gain"] = float(var_gain.compute().detach().cpu())
+        stats["lambda_scv"] = float(lambda_scv_metric.compute().detach().cpu())
     return stats
