@@ -233,7 +233,11 @@ class AdjointVEMatcher(AdjointMatcher):
         if E.ndim == 1:
             E = E.unsqueeze(-1)
 
-        mlp_out = self.neural_scv(xt_req, t, E)
+        score = -torch.autograd.grad(
+            E.sum(), xt_req, create_graph=True
+        )[0]
+        mlp_out = self.neural_scv(xt_req, t, E, score)
+
         d_mlp_dxt = torch.autograd.grad(
             outputs=mlp_out,
             inputs=xt_req,
