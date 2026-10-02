@@ -41,6 +41,35 @@ class GMM1D(distributions.Distribution):
         self._initialize_distr(device)
         return self
 
+
+class GMMD(distributions.Distribution):
+    """ Tri-modal Gaussian mixture in R^d: modes spread along axis 0 """
+    def __init__(self, dim: int = 2, device="cpu") -> None:
+        super().__init__()
+        self.dim = dim
+        self.name = f"gmm{dim}d"
+        self._initialize_distr(device)
+
+    def _initialize_distr(self, device) -> None:
+        loc = torch.zeros(3, self.dim, device=device)
+        loc[:, 0] = torch.tensor([-6., -2., 5.], device=device)
+        scale = torch.ones(3, self.dim, device=device)
+        weights = torch.tensor([.3, .1, .6], device=device)
+        modes = distributions.Independent(distributions.Normal(loc, scale), 1)
+        self.distr = distributions.MixtureSameFamily(
+            distributions.Categorical(weights), modes
+        )
+
+    def log_prob(self, x: torch.Tensor) -> torch.Tensor:
+        return self.distr.log_prob(x).unsqueeze(-1)
+
+    def sample(self, shape: tuple) -> torch.Tensor:
+        return self.distr.sample(torch.Size(shape))
+
+    def to(self, device):
+        self._initialize_distr(device)
+        return self
+
 ########################################
 ######### Source Distributions #########
 ########################################

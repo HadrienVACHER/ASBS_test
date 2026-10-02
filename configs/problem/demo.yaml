@@ -1,12 +1,13 @@
 # @package _global_
 
 # === problem ===
-dim: 1
+dim: 2
 
 energy:
   _target_: adjoint_samplers.energies.dist_energy.DistEnergy
   dist:
-    _target_: adjoint_samplers.utils.dist_utils.GMM1D
+    _target_: adjoint_samplers.utils.dist_utils.GMMD
+    dim: ${dim}
 
 evaluator:
   _target_: adjoint_samplers.components.evaluator.DemoEvaluator

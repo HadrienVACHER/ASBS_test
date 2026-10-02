@@ -89,7 +89,7 @@ def main(cfg):
             sde=sde,
         )
 
-        neural_scv = NeuralSCV().to(device)
+        neural_scv = NeuralSCV(dim=cfg.dim).to(device)
         adjoint_matcher.neural_scv = neural_scv
         adjoint_matcher.scv_optimizer = torch.optim.Adam(
             neural_scv.parameters(), lr=1e-3

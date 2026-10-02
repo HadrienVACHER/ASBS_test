@@ -233,17 +233,24 @@ class AdjointVEMatcher(AdjointMatcher):
         if E.ndim == 1:
             E = E.unsqueeze(-1)
 
-        h = self.neural_scv(x0.detach(), x1_req, E, xt_det, t_det)
-        f1 = (1.0 - t_det) * h
-
-        div1 = torch.zeros(f1.shape[0], 1, device=f1.device, dtype=f1.dtype)
-        for i in range(f1.shape[-1]):
-            div1 = div1 + torch.autograd.grad(
-                f1[:, i].sum(), x1_req, create_graph=True, retain_graph=True
-            )[0][:, i : i + 1]
+        h = self.neural_scv(x0.detach(), x1_req, E, xt_det, t_det)   # (B, d, d)
+        F_ = (1.0 - t_det).unsqueeze(-1) * h                          # (B, d, d)
+        d = x1_req.shape[-1]
 
         score1 = ((xt_det - x1) / (sigma ** 2 * (1.0 - t_det)) - adjoint1).detach()
-        phi = div1 + (f1 * score1).sum(dim=-1, keepdim=True)
+
+        rows = []
+        for j in range(d):
+            div_j = 0.0
+            for i in range(d):
+                div_j = div_j + torch.autograd.grad(
+                    F_[:, j, i].sum(), x1_req,
+                    create_graph=True, retain_graph=True,
+                )[0][:, i]
+            rows.append(div_j)
+        div = torch.stack(rows, dim=-1)                               # (B, d)
+
+        phi = div + torch.einsum("bji,bi->bj", F_, score1)            # (B, d)
 
         self._check_target_shape(t, xt, adjoint)
         return (t, xt), -adjoint, phi

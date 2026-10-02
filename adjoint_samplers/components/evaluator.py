@@ -34,15 +34,17 @@ class DemoEvaluator:
 
     def plot_hist(self, x, title=None) -> None:
         B, D = x.shape
-        assert D == 1
-
         if title is None:
             title = f"Eval #{self.subplot_idx}"
-
-        x = (x.reshape(-1)).detach().cpu()
-        self.ax.hist(x, bins=50, density=True)
-        self.ax.set_xlim(-10, 10)
-        self.ax.set_ylim(0, 0.4)
+        x = x.detach().cpu()
+        if D == 1:
+            self.ax.hist(x.reshape(-1), bins=50, density=True)
+            self.ax.set_xlim(-10, 10)
+            self.ax.set_ylim(0, 0.4)
+        else:
+            self.ax.scatter(x[:, 0], x[:, 1], s=2, alpha=0.3)  # first two coords
+            self.ax.set_xlim(-10, 10)
+            self.ax.set_ylim(-10, 10)
         self.ax.grid(True)
         self.ax.set_title(title)
 
@@ -59,9 +61,15 @@ class DemoEvaluator:
             self.fig.canvas.draw()
             result["hist_img"] = fig2img(self.fig)
 
-        target = self.dist.sample([samples.shape[0]]).detach().cpu().numpy().reshape(-1)
-        generated = samples.detach().cpu().numpy().reshape(-1)
-        result["w2"] = pot.emd2_1d(target, generated) ** 0.5
+        target = self.dist.sample([samples.shape[0]]).detach().cpu().numpy()
+        generated = samples.detach().cpu().numpy()
+        if generated.shape[1] == 1:
+            result["w2"] = pot.emd2_1d(target.reshape(-1), generated.reshape(-1)) ** 0.5
+        else:
+            n = generated.shape[0]
+            a = np.full(n, 1.0 / n)
+            M = pot.dist(target, generated)  # squared Euclidean
+            result["w2"] = pot.emd2(a, a, M) ** 0.5
         return result
 
 

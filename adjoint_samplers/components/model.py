@@ -466,7 +466,7 @@ def unsorted_segment_mean(data, segment_ids, num_segments):
     return result / count.clamp(min=1)
 
 class NeuralSCV(nn.Module):
-    def __init__(self, dim: int = 1, hidden: int = 16):
+    def __init__(self, dim: int = 1, hidden: int = 64):
         super().__init__()
         self.dim = dim
         self.net = nn.Sequential(
@@ -474,8 +474,9 @@ class NeuralSCV(nn.Module):
             nn.SiLU(),
             nn.Linear(hidden, hidden),
             nn.SiLU(),
-            nn.Linear(hidden, dim),
+            nn.Linear(hidden, dim * dim),
         )
 
     def forward(self, x0, x1, e, xt, t):
-        return self.net(torch.cat([x0, x1, e, xt, t], dim=-1))
+        out = self.net(torch.cat([x0, x1, e, xt, t], dim=-1))
+        return out.view(-1, self.dim, self.dim)
