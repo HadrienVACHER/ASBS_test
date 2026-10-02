@@ -220,34 +220,33 @@ class AdjointVEMatcher(AdjointMatcher):
         x1 = data["x1"].to(device)
         adjoint1 = data["adjoint1"].to(device)
 
-        t = self.sample_t(x0).to(device)
+        t = self.sample_t(x0).to(device).clamp(1e-3, 1.0 - 1e-3)
         xt = self.sde.sample_base_posterior(t, x0, x1)
-        adjoint = adjoint1  # const w.r.t. time in this case
+        adjoint = adjoint1
 
         sigma = self.sde.ref_sde.sigma
-        residual = xt - ((1 - t) * x0 + t * x1)
+        x1_req = x1.detach().requires_grad_(True)
+        xt_det = xt.detach()
+        t_det = t.detach()
 
-        # E must be built from xt_req so d/dxt includes dMLP/dE * E'(xt)
-        xt_req = xt.detach().requires_grad_(True)
-        E = self.grad_term_cost.energy.eval(xt_req)
+        E = self.grad_term_cost.energy.eval(x1_req)
         if E.ndim == 1:
             E = E.unsqueeze(-1)
 
-        score = -torch.autograd.grad(
-            E.sum(), xt_req, create_graph=True
-        )[0]
-        mlp_out = self.neural_scv(xt_req, t, E, score)
+        h = self.neural_scv(x0.detach(), x1_req, E, xt_det, t_det)
+        f1 = (1.0 - t_det) * h
 
-        d_mlp_dxt = torch.autograd.grad(
-            outputs=mlp_out,
-            inputs=xt_req,
-            grad_outputs=torch.ones_like(mlp_out),
-            create_graph=True,
-        )[0]
-        psi = (sigma ** 2) * t * (1 - t) * d_mlp_dxt - mlp_out * residual
+        div1 = torch.zeros(f1.shape[0], 1, device=f1.device, dtype=f1.dtype)
+        for i in range(f1.shape[-1]):
+            div1 = div1 + torch.autograd.grad(
+                f1[:, i].sum(), x1_req, create_graph=True, retain_graph=True
+            )[0][:, i : i + 1]
+
+        score1 = ((xt_det - x1) / (sigma ** 2 * (1.0 - t_det)) - adjoint1).detach()
+        phi = div1 + (f1 * score1).sum(dim=-1, keepdim=True)
 
         self._check_target_shape(t, xt, adjoint)
-        return (t, xt), -adjoint, psi / sigma
+        return (t, xt), -adjoint, phi
 
 class AdjointVPMatcher(AdjointVEMatcher):
     """ Efficient computation of AM when the base SDE has linear drift (e.g., VP)
