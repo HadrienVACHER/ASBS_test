@@ -131,3 +131,44 @@ class SyntheticEenergyEvaluator:
             "eq_w2": eq_w2,
             "dist_w2": dist_w2,
         }
+
+
+class GMMEvaluator:
+    def __init__(self, energy, n_proj: int = 100, n_bins: int = 50, seed: int = 0) -> None:
+        from adjoint_samplers.energies.dist_energy import DistEnergy
+        assert isinstance(energy, DistEnergy)
+        self.dist = energy.dist
+        self.n_bins = n_bins
+        g = torch.Generator().manual_seed(seed)
+        theta = torch.randn(n_proj, self.dist.dim, generator=g)
+        self.theta = theta / theta.norm(dim=1, keepdim=True)
+
+    def __call__(self, samples: torch.Tensor) -> Dict:
+        x = samples.detach()
+        y = self.dist.sample([x.shape[0]]).to(x.device)
+
+        # mode TVD (0.5 factor so that the value lies in [0, 1])
+        counts = torch.bincount(self.dist.assign_mode(x), minlength=self.dist.n_modes).float()
+        pi_hat = counts / counts.sum()
+        mode_tvd = 0.5 * (self.dist.weights - pi_hat).abs().sum().item()
+
+        # sliced TVD
+        theta = self.theta.to(x.device)
+        px = (x @ theta.T).cpu().numpy()
+        py = (y @ theta.T).cpu().numpy()
+        tvds = []
+        for p in range(px.shape[1]):
+            lo = min(px[:, p].min(), py[:, p].min())
+            hi = max(px[:, p].max(), py[:, p].max())
+            hx, _ = np.histogram(px[:, p], bins=self.n_bins, range=(lo, hi))
+            hy, _ = np.histogram(py[:, p], bins=self.n_bins, range=(lo, hi))
+            tvds.append(0.5 * np.abs(hx / hx.sum() - hy / hy.sum()).sum())
+
+        # W2 with POT
+        xn = x.cpu().numpy().astype(np.float64)
+        yn = y.cpu().numpy().astype(np.float64)
+        n = xn.shape[0]
+        a = np.full(n, 1.0 / n)
+        w2 = pot.emd2(a, a, pot.dist(yn, xn), numItermax=10_000_000) ** 0.5
+
+        return {"mode_tvd": mode_tvd, "sliced_tvd": float(np.mean(tvds)), "w2": float(w2)}

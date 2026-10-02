@@ -70,6 +70,44 @@ class GMMD(distributions.Distribution):
         self._initialize_distr(device)
         return self
 
+class GMMRandom(distributions.Distribution):
+    """ K-component GMM in R^d: pi = 1/K, Sigma = I, means ~ U[-K, K]^d """
+    arg_constraints = {}
+
+    def __init__(self, dim: int, n_modes: int, seed: int = 0, device="cpu") -> None:
+        super().__init__(validate_args=False)
+        self.dim = dim
+        self.n_modes = n_modes
+        self.name = f"gmm_{n_modes}x{dim}d"
+        g = torch.Generator().manual_seed(seed)
+        self.means = (2 * torch.rand(n_modes, dim, generator=g) - 1) * n_modes
+        self.weights = torch.full((n_modes,), 1.0 / n_modes)
+        self._initialize_distr(device)
+
+    def _initialize_distr(self, device) -> None:
+        self.means = self.means.to(device)
+        self.weights = self.weights.to(device)
+        modes = distributions.Independent(
+            distributions.Normal(self.means, torch.ones_like(self.means)), 1
+        )
+        self.distr = distributions.MixtureSameFamily(
+            distributions.Categorical(self.weights), modes
+        )
+
+    def log_prob(self, x: torch.Tensor) -> torch.Tensor:
+        return self.distr.log_prob(x).unsqueeze(-1)
+
+    def sample(self, shape: tuple) -> torch.Tensor:
+        return self.distr.sample(torch.Size(shape))
+
+    def assign_mode(self, x: torch.Tensor) -> torch.Tensor:
+        # argmax_j  log pi_j + log N(x | mu_j, I)
+        return (self.weights.log() - 0.5 * torch.cdist(x, self.means) ** 2).argmax(-1)
+
+    def to(self, device):
+        self._initialize_distr(device)
+        return self
+
 ########################################
 ######### Source Distributions #########
 ########################################

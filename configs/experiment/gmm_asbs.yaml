@@ -1,0 +1,55 @@
+# @package _global_
+
+defaults:
+  - /problem: gmm
+  - /source: gauss
+  - /sde@ref_sde: brownian_motion
+  - /model@controller: fouriermlp
+  - /state_cost: zero
+  - /term_cost: corrector_term_cost
+  - /matcher@adjoint_matcher: adjoint_ve
+  - /model@corrector: fouriermlp
+  - /matcher@corrector_matcher: corrector
+
+exp_name: gmm_asbs
+
+scale: ${n_modes}        # source N(0, K^2)
+nfe: 100                 # 100 Euler-Maruyama steps
+rescale_t: null
+sigma: 2.5               # constant noise
+
+controller:
+  num_layers: 6
+  channels: 512
+corrector:
+  num_layers: 6
+  channels: 512
+
+num_epochs: 2000
+init_stage: adjoint
+max_grad_E_norm: null
+train_itr_per_epoch: 1000
+resample_batch_size: 1024
+train_batch_size: 1024
+clip_grad_value: 1.0
+
+adjoint_matcher:
+  buffer_size: 30000
+  duplicates: 10
+  resample_size: 1024
+  num_epochs_per_stage: 1
+  optim:
+    lr: 1e-4
+    weight_decay: 0
+
+corrector_matcher:
+  buffer_size: 30000
+  duplicates: 10
+  resample_size: 1024
+  num_epochs_per_stage: 1
+  optim:
+    lr: 1e-4
+    weight_decay: 0
+
+eval_freq: 100
+use_wandb: true

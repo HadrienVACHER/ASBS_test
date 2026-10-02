@@ -1,0 +1,15 @@
+# @package _global_
+
+dim: 10
+n_modes: 10   # K, not given in the excerpt
+
+energy:
+  _target_: adjoint_samplers.energies.dist_energy.DistEnergy
+  dist:
+    _target_: adjoint_samplers.utils.dist_utils.GMMRandom
+    dim: ${dim}
+    n_modes: ${n_modes}
+    seed: 0
+
+evaluator:
+  _target_: adjoint_samplers.components.evaluator.GMMEvaluator

@@ -147,6 +147,9 @@ def train_one_epoch(
         if cfg.clip_grad_norm:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1e20)
 
+        if cfg.get("clip_grad_value"):
+            torch.nn.utils.clip_grad_value_(model.parameters(), cfg.clip_grad_value)
+
         optimizer.step()
 
         epoch_loss.update(loss.item())
