@@ -31,4 +31,4 @@ echo "Exécution sur le nœud : $(hostname) à $(date)"
 nvidia-smi -L
 
 # --- Lancement de l'expérience ---
-python train.py experiment=gmm_asbs_baseline dim=10 n_modes=10 seed=0 exp_name=gmm_d10_K10_s0
+python train.py experiment=gmm_asbs dim=10 n_modes=10 seed=0 exp_name=gmm_d10_K10_s0
