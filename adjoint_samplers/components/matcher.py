@@ -201,18 +201,18 @@ class AdjointVEMatcher(AdjointMatcher):
         assert t.shape == (B, 1) and adjoint.shape == (B, D)
 
 
-    # original prepare_target
-    def prepare_target(self, data, device):
-        x0 = data["x0"].to(device)
-        x1 = data["x1"].to(device)
-        adjoint1 = data["adjoint1"].to(device)
+    # # original prepare_target
+    # def prepare_target(self, data, device):
+    #     x0 = data["x0"].to(device)
+    #     x1 = data["x1"].to(device)
+    #     adjoint1 = data["adjoint1"].to(device)
 
-        t = self.sample_t(x0).to(device)
-        xt = self.sde.sample_base_posterior(t, x0, x1)
-        adjoint = adjoint1 # const w.r.t. time in this case
+    #     t = self.sample_t(x0).to(device)
+    #     xt = self.sde.sample_base_posterior(t, x0, x1)
+    #     adjoint = adjoint1 # const w.r.t. time in this case
 
-        self._check_target_shape(t, xt, adjoint)
-        return (t, xt), - adjoint
+    #     self._check_target_shape(t, xt, adjoint)
+    #     return (t, xt), - adjoint
 
     # # scv
     # def prepare_target(self, data, device):
@@ -254,6 +254,48 @@ class AdjointVEMatcher(AdjointMatcher):
 
     #     self._check_target_shape(t, xt, adjoint)
     #     return (t, xt), -adjoint, phi
+
+
+    # scv hutchinson
+    def prepare_target(self, data, device):
+        x0 = data["x0"].to(device)
+        x1 = data["x1"].to(device)
+        adjoint1 = data["adjoint1"].to(device)
+
+        t = self.sample_t(x0).to(device).clamp(1e-3, 1.0 - 1e-3)
+        xt = self.sde.sample_base_posterior(t, x0, x1)
+        adjoint = adjoint1
+
+        sigma = self.sde.ref_sde.sigma
+        x1_req = x1.detach().requires_grad_(True)
+        xt_det = xt.detach()
+        t_det = t.detach()
+
+        E = self.grad_term_cost.energy.eval(x1_req)
+        if E.ndim == 1:
+            E = E.unsqueeze(-1)
+
+        h = self.neural_scv(x0.detach(), x1_req, E, xt_det, t_det)   # (B, d, d)
+        F_ = (1.0 - t_det).unsqueeze(-1) * h                          # (B, d, d)
+        d = x1_req.shape[-1]
+
+        score1 = ((xt_det - x1) / (sigma ** 2 * (1.0 - t_det)) - adjoint1).detach()
+
+        eps = torch.empty_like(x1_req).bernoulli_(0.5).mul_(2).sub_(1)
+        v = torch.einsum("bji,bi->bj", F_, eps)          # (B, d)
+        rows = []
+        for j in range(d):
+            grad_v = torch.autograd.grad(
+                v[:, j].sum(), x1_req, create_graph=True, retain_graph=True,
+            )[0]
+            rows.append((grad_v * eps).sum(dim=-1))
+        div = torch.stack(rows, dim=-1)
+        phi = div + torch.einsum("bji,bi->bj", F_, score1)
+
+        self._check_target_shape(t, xt, adjoint)
+        return (t, xt), -adjoint, phi
+
+
 
 class AdjointVPMatcher(AdjointVEMatcher):
     """ Efficient computation of AM when the base SDE has linear drift (e.g., VP)
