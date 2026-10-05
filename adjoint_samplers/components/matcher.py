@@ -9,6 +9,7 @@ from adjoint_samplers.components.sde import BaseSDE, sdeint
 from adjoint_samplers.components.state_cost import GradStateCost, ZeroGradStateCost
 from adjoint_samplers.components.term_cost import GradEnergy
 
+import adjoint_samplers.utils.graph_utils as graph_utils
 
 class Matcher:
     def __init__(
@@ -339,6 +340,56 @@ class AdjointVEMatcher(AdjointMatcher):
 
     #     self._check_target_shape(t, xt, adjoint)
     #     return (t, xt), -adjoint, phi
+
+    # scv hutchinson v2 DW4
+    def prepare_target(self, data, device):
+        x0 = data["x0"].to(device)
+        x1 = data["x1"].to(device)
+        adjoint1 = data["adjoint1"].to(device)
+
+        t = self.sample_t(x0).to(device).clamp(1e-3, 1.0 - 1e-3)
+        xt = self.sde.sample_base_posterior(t, x0, x1)
+        adjoint = adjoint1
+
+        ref = self.sde.ref_sde
+        xt_det = xt.detach()
+        t_det = t.detach()
+        if hasattr(ref, "total_var"):
+            lam = ref._diffsquare_integral(t_det) / ref.total_var
+            sigma2 = ref.total_var
+        else:
+            lam = t_det
+            sigma2 = ref.sigma ** 2
+        lam = lam.clamp(1e-3, 1.0 - 1e-3)
+
+        score1 = ((xt_det - x1) / (sigma2 * (1.0 - lam)) - adjoint1).detach()
+
+        eps = torch.empty_like(x1).bernoulli_(0.5).mul_(2).sub_(1)
+        centered = hasattr(ref, "n_particles")
+        if centered:
+            eps = graph_utils.remove_mean(eps, ref.n_particles, ref.spatial_dim)
+
+        def v_of(x):
+            E = self.grad_term_cost.energy.eval(x)
+            if E.ndim == 1:
+                E = E.unsqueeze(-1)
+            h = self.neural_scv(x0.detach(), x, E, xt_det, t_det)
+            F_ = (1.0 - lam).unsqueeze(-1) * h
+            if centered:
+                B, d, _ = F_.shape
+                F_ = graph_utils.remove_mean(
+                    F_.reshape(B * d, d), ref.n_particles, ref.spatial_dim,
+                ).reshape(B, d, d)
+            v = torch.einsum("bji,bi->bj", F_, eps)
+            return v, F_
+
+        (_, F_), (div, _) = torch.autograd.functional.jvp(
+            v_of, x1.detach(), eps, create_graph=True,
+        )
+        phi = div + torch.einsum("bji,bi->bj", F_, score1)
+
+        self._check_target_shape(t, xt, adjoint)
+        return (t, xt), -adjoint, phi
 
 
 
