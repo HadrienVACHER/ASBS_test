@@ -1,7 +1,7 @@
 # @package _global_
 
 # === problem ===
-dim: 2
+dim: 10
 
 energy:
   _target_: adjoint_samplers.energies.dist_energy.DistEnergy
