@@ -202,18 +202,18 @@ class AdjointVEMatcher(AdjointMatcher):
         assert t.shape == (B, 1) and adjoint.shape == (B, D)
 
 
-    # original prepare_target
-    def prepare_target(self, data, device):
-        x0 = data["x0"].to(device)
-        x1 = data["x1"].to(device)
-        adjoint1 = data["adjoint1"].to(device)
+    # # original prepare_target
+    # def prepare_target(self, data, device):
+    #     x0 = data["x0"].to(device)
+    #     x1 = data["x1"].to(device)
+    #     adjoint1 = data["adjoint1"].to(device)
 
-        t = self.sample_t(x0).to(device)
-        xt = self.sde.sample_base_posterior(t, x0, x1)
-        adjoint = adjoint1 # const w.r.t. time in this case
+    #     t = self.sample_t(x0).to(device)
+    #     xt = self.sde.sample_base_posterior(t, x0, x1)
+    #     adjoint = adjoint1 # const w.r.t. time in this case
 
-        self._check_target_shape(t, xt, adjoint)
-        return (t, xt), - adjoint
+    #     self._check_target_shape(t, xt, adjoint)
+    #     return (t, xt), - adjoint
 
     # scv
     def prepare_target(self, data, device):

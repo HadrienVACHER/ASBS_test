@@ -54,6 +54,7 @@ def train_one_epoch(
     cv_mse_cost = MeanMetric().to(device, non_blocking=True)
     var_gain = MeanMetric().to(device, non_blocking=True)
     saw_cv = False
+    phi_r2 = MeanMetric().to(device, non_blocking=True)
 
     # lambda_scv_metric = MeanMetric().to(device, non_blocking=True)
 
@@ -105,6 +106,16 @@ def train_one_epoch(
         if extra:
             phi = extra[0]
 
+            t_in, xt_in = input
+            m = matcher.cond_mean(t_in.detach(), xt_in.detach())
+            loss_m = F.mse_loss(m, phi.detach())
+            matcher.cond_optimizer.zero_grad()
+            loss_m.backward()
+            matcher.cond_optimizer.step()
+            ss_res = (phi.detach() - m.detach()).pow(2).mean()
+            ss_tot = phi.detach().var(unbiased=False)
+            phi_r2.update((1.0 - ss_res / (ss_tot + 1e-8)).item())
+
             # Step A: fit the neural SCV to the current residual u + a
             target_omega = (output - target).detach()
             loss_omega = F.mse_loss(phi, target_omega)
@@ -128,6 +139,8 @@ def train_one_epoch(
             cv_bias.update(bias)
             cv_var.update(controlled)
             raw_var.update(raw)
+
+            
 
             # Step B: drift target -(a - phi)
             # progress = (epoch * cfg.train_itr_per_epoch + itr) / (
@@ -168,4 +181,5 @@ def train_one_epoch(
         stats["cv_mse_cost"] = float(cv_mse_cost.compute().detach().cpu())
         stats["var_gain"] = float(var_gain.compute().detach().cpu())
         # stats["lambda_scv"] = float(lambda_scv_metric.compute().detach().cpu())
+        stats["phi_r2"] = float(phi_r2.compute().detach().cpu())
     return stats

@@ -18,7 +18,7 @@ import adjoint_samplers.utils.distributed_mode as distributed_mode
 
 # from adjoint_samplers.components.model import TemporalGate
 
-from adjoint_samplers.components.model import NeuralSCV
+from adjoint_samplers.components.model import NeuralSCV, CondMean
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -94,6 +94,12 @@ def main(cfg):
         adjoint_matcher.neural_scv = neural_scv
         adjoint_matcher.scv_optimizer = torch.optim.Adam(
             neural_scv.parameters(), lr=1e-3
+        )
+
+        cond_mean = CondMean(dim=cfg.dim).to(device)
+        adjoint_matcher.cond_mean = cond_mean
+        adjoint_matcher.cond_optimizer = torch.optim.Adam(
+            cond_mean.parameters(), lr=1e-3
         )
 
 
@@ -177,6 +183,7 @@ def main(cfg):
                 log_dict[f"{stage}_cv_mse_cost"] = stats["cv_mse_cost"]
                 log_dict[f"{stage}_var_gain"] = stats["var_gain"]
                 # log_dict[f"{stage}_lambda_scv"] = stats["lambda_scv"]
+                log_dict[f"{stage}_phi_r2"] = stats["phi_r2"]
             writer.log(log_dict, step=epoch)
 
             print("[{0} | {1}] {2}".format(
