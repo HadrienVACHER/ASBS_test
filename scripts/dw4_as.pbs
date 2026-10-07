@@ -1,0 +1,34 @@
+#!/bin/bash
+#PBS -N dw4_asbs
+#PBS -P gs_ccds_haidang.dau
+#PBS -q gpu_as
+#PBS -l walltime=18:00:00
+#PBS -l select=1:ncpus=12:ngpus=1:mem=32gb
+#PBS -j oe
+
+cd "${PBS_O_WORKDIR}" || exit 1
+export PYTHONUNBUFFERED=1
+
+# --- Correctif officiel PBS/GaaS pour les identifiants GPU ---
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+    GPU_COUNT=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | wc -l)
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1)))
+    export CUDA_VISIBLE_DEVICES
+    echo "CUDA_VISIBLE_DEVICES converti en index : ${CUDA_VISIBLE_DEVICES}"
+fi
+
+# --- Optimisation CPU/MKL ---
+export OMP_NUM_THREADS=12
+export MKL_NUM_THREADS=12
+
+# --- Chargement de l'environnement Conda BMS ---
+module purge
+module load anaconda/2025
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"
+conda activate BMS
+
+echo "Exécution sur le nœud : $(hostname) à $(date)"
+nvidia-smi -L
+
+# --- Lancement de l'expérience ---
+python train.py experiment=dw4_as seed=0 exp_name=dw4_as_baseline
