@@ -89,17 +89,17 @@ def main(cfg):
             sde=sde,
         )
 
-        #comment if asbs baseline
-        neural_scv = NeuralSCV(dim=cfg.dim).to(device)
-        adjoint_matcher.neural_scv = neural_scv
-        adjoint_matcher.scv_optimizer = torch.optim.Adam(
-            neural_scv.parameters(), lr=1e-3
-        )
-        cond_mean = CondMean(dim=cfg.dim).to(device)
-        adjoint_matcher.cond_mean = cond_mean
-        adjoint_matcher.cond_optimizer = torch.optim.Adam(
-            cond_mean.parameters(), lr=1e-3
-        )
+        # #comment if asbs baseline
+        # neural_scv = NeuralSCV(dim=cfg.dim).to(device)
+        # adjoint_matcher.neural_scv = neural_scv
+        # adjoint_matcher.scv_optimizer = torch.optim.Adam(
+        #     neural_scv.parameters(), lr=1e-3
+        # )
+        # cond_mean = CondMean(dim=cfg.dim).to(device)
+        # adjoint_matcher.cond_mean = cond_mean
+        # adjoint_matcher.cond_optimizer = torch.optim.Adam(
+        #     cond_mean.parameters(), lr=1e-3
+        # )
 
 
         print("Instantiating optimizer...")
