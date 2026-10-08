@@ -2,7 +2,7 @@
 
 import torch
 from torch.func import grad
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from adjoint_samplers.components.buffer import BatchBuffer
 from adjoint_samplers.components.sde import BaseSDE, sdeint, sdeint_logw
@@ -29,11 +29,22 @@ class Matcher:
 
     def build_dataloader(self, batch_size, collate_fn=None) -> DataLoader:
         dataset = self.buffer.build_dataset(self.duplicates)
+        if "logw" in dataset.total_data:
+            logw = dataset.total_data["logw"].double()
+            w = (logw - logw.max()).exp()
+            w = w / w.sum()
+            cap = 10.0 / w.numel()
+            w = torch.clamp(w, max=cap)
+            w = w + (1.0 - w.sum()) / w.numel()
+            weights = w.repeat(dataset.duplicates).float()
+            sampler = WeightedRandomSampler(
+                weights, num_samples=len(dataset), replacement=True,
+            )
+            return DataLoader(
+                dataset, batch_size=batch_size, sampler=sampler, collate_fn=collate_fn,
+            )
         return DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            collate_fn=collate_fn,
+            dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn,
         )
 
     def populate_buffer(self):
@@ -192,6 +203,7 @@ class AdjointVEMatcher(AdjointMatcher):
             "x0": x0.to("cpu"),
             "x1": x1.to("cpu"),
             "adjoint1": adjoint1.to("cpu"),
+            "logw": logw.detach().cpu(),
         })
 
     def sample_t(self, x):
