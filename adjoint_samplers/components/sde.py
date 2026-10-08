@@ -367,3 +367,22 @@ def sdeint(
     if only_boundary:
         return states[0], states[-1]
     return states
+
+@torch.no_grad()
+def sdeint_logw(sde, state0, timesteps):
+    """Same integrator as sdeint(..., only_boundary=True), plus log(dP_ref / dP_u)."""
+    sde.train(False)
+    state = state0.clone()
+    logw = torch.zeros(state.shape[0], device=state.device)
+    for i in range(len(timesteps) - 1):
+        t = timesteps[i]
+        dt = timesteps[i + 1] - t
+        g = sde.diff(t)
+        u = sde.u(t, state)
+        xi = sde.randn_like(state)
+        d_state = (
+            sde.ref_sde.drift(t, state) + (g ** 2) * u
+        ) * dt + g * dt.sqrt() * xi
+        logw = logw - (u * xi).sum(-1) * g * dt.sqrt() - 0.5 * u.pow(2).sum(-1) * (g ** 2) * dt
+        state = sde.propagate(state, d_state)
+    return state0, state, logw

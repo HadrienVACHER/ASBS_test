@@ -89,17 +89,17 @@ def main(cfg):
             sde=sde,
         )
 
-        #comment if asbs baseline
-        neural_scv = NeuralSCV(dim=cfg.dim).to(device)
-        adjoint_matcher.neural_scv = neural_scv
-        adjoint_matcher.scv_optimizer = torch.optim.Adam(
-            neural_scv.parameters(), lr=1e-3
-        )
-        cond_mean = CondMean(dim=cfg.dim).to(device)
-        adjoint_matcher.cond_mean = cond_mean
-        adjoint_matcher.cond_optimizer = torch.optim.Adam(
-            cond_mean.parameters(), lr=1e-3
-        )
+        # #comment if asbs baseline
+        # neural_scv = NeuralSCV(dim=cfg.dim).to(device)
+        # adjoint_matcher.neural_scv = neural_scv
+        # adjoint_matcher.scv_optimizer = torch.optim.Adam(
+        #     neural_scv.parameters(), lr=1e-3
+        # )
+        # cond_mean = CondMean(dim=cfg.dim).to(device)
+        # adjoint_matcher.cond_mean = cond_mean
+        # adjoint_matcher.cond_optimizer = torch.optim.Adam(
+        #     cond_mean.parameters(), lr=1e-3
+        # )
 
 
         print("Instantiating optimizer...")
@@ -169,10 +169,15 @@ def main(cfg):
                 matcher, model, source, optimizer, lr_schedule, epoch, device, cfg
             )
             loss = stats["loss"]
+
             log_dict = {
                 f"{stage}_loss": loss,
                 f"{stage}_buffer_size": len(matcher.buffer),
             }
+            if "ess" in stats:
+                log_dict[f"{stage}_ess"] = stats["ess"]
+                log_dict[f"{stage}_logZ"] = stats["logZ"]
+
             if "cv_bias" in stats:
                 log_dict[f"{stage}_cv_bias"] = stats["cv_bias"]
                 log_dict[f"{stage}_cv_var"] = stats["cv_var"]

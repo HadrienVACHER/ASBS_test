@@ -5,7 +5,7 @@ from torch.func import grad
 from torch.utils.data import DataLoader
 
 from adjoint_samplers.components.buffer import BatchBuffer
-from adjoint_samplers.components.sde import BaseSDE, sdeint
+from adjoint_samplers.components.sde import BaseSDE, sdeint, sdeint_logw
 from adjoint_samplers.components.state_cost import GradStateCost, ZeroGradStateCost
 from adjoint_samplers.components.term_cost import GradEnergy
 
@@ -172,19 +172,21 @@ class AdjointVEMatcher(AdjointMatcher):
         (B, D) = x0.shape
         assert x1.shape == adjoint1.shape == (B, D)
 
-    def populate_buffer(
-            self,
-            x0: torch.Tensor,
-            timesteps: torch.Tensor,
-            is_asbs_init_stage: bool,
-    ):
-        (x0, x1) = sdeint(
-            self.sde,
-            x0,
-            timesteps,
-            only_boundary=True,
-        )
+    def populate_buffer(self, x0, timesteps, is_asbs_init_stage):
+        (x0, x1, logw) = sdeint_logw(self.sde, x0, timesteps)
         adjoint1 = self._compute_adjoint1(x1, is_asbs_init_stage).clone()
+
+        ref = self.sde.ref_sde
+        sigma2 = ref.total_var if hasattr(ref, "total_var") else ref.sigma ** 2
+        d_eff = x1.shape[-1] - ref.spatial_dim if hasattr(ref, "n_particles") else x1.shape[-1]
+        log_pbase = -0.5 * x1.pow(2).sum(-1) / sigma2 - 0.5 * d_eff * torch.log(
+            2 * torch.pi * sigma2
+        )
+        energy = self.grad_term_cost.energy.eval(x1)
+        logw = logw - energy.view(-1) - log_pbase
+        if not hasattr(self, "_epoch_logw"):
+            self._epoch_logw = []
+        self._epoch_logw.append(logw.detach().cpu())
 
         self._check_buffer_sample_shape(x0, x1, adjoint1)
         self.buffer.add({
@@ -202,71 +204,71 @@ class AdjointVEMatcher(AdjointMatcher):
         assert t.shape == (B, 1) and adjoint.shape == (B, D)
 
 
-    # # original prepare_target
-    # def prepare_target(self, data, device):
-    #     x0 = data["x0"].to(device)
-    #     x1 = data["x1"].to(device)
-    #     adjoint1 = data["adjoint1"].to(device)
-
-    #     t = self.sample_t(x0).to(device)
-    #     xt = self.sde.sample_base_posterior(t, x0, x1)
-    #     adjoint = adjoint1 # const w.r.t. time in this case
-
-    #     self._check_target_shape(t, xt, adjoint)
-    #     return (t, xt), - adjoint
-
-    # scv
+    # original prepare_target
     def prepare_target(self, data, device):
         x0 = data["x0"].to(device)
         x1 = data["x1"].to(device)
         adjoint1 = data["adjoint1"].to(device)
 
-        t = self.sample_t(x0).to(device).clamp(1e-3, 1.0 - 1e-3)
+        t = self.sample_t(x0).to(device)
         xt = self.sde.sample_base_posterior(t, x0, x1)
-        adjoint = adjoint1
-
-        ref = self.sde.ref_sde
-        x1_req = x1.detach().requires_grad_(True)
-        xt_det = xt.detach()
-        t_det = t.detach()
-        if hasattr(ref, "total_var"):
-            lam = ref._diffsquare_integral(t_det) / ref.total_var
-            sigma2 = ref.total_var
-        else:
-            lam = t_det
-            sigma2 = ref.sigma ** 2
-        lam = lam.clamp(1e-3, 1.0 - 1e-3)
-
-        E = self.grad_term_cost.energy.eval(x1_req)
-        if E.ndim == 1:
-            E = E.unsqueeze(-1)
-
-        h = self.neural_scv(x0.detach(), x1_req, E, xt_det, t_det)
-        F_ = (1.0 - lam).unsqueeze(-1) * h
-        d = x1_req.shape[-1]
-        if hasattr(ref, "n_particles"):
-            B = F_.shape[0]
-            F_ = graph_utils.remove_mean(
-                F_.reshape(B * d, d), ref.n_particles, ref.spatial_dim,
-            ).reshape(B, d, d)
-
-        score1 = ((xt_det - x1) / (sigma2 * (1.0 - lam)) - adjoint1).detach()
-
-        rows = []
-        for j in range(d):
-            div_j = 0.0
-            for i in range(d):
-                div_j = div_j + torch.autograd.grad(
-                    F_[:, j, i].sum(), x1_req,
-                    create_graph=True, retain_graph=True,
-                )[0][:, i]
-            rows.append(div_j)
-        div = torch.stack(rows, dim=-1)
-
-        phi = div + torch.einsum("bji,bi->bj", F_, score1)
+        adjoint = adjoint1 # const w.r.t. time in this case
 
         self._check_target_shape(t, xt, adjoint)
-        return (t, xt), -adjoint, phi
+        return (t, xt), - adjoint
+
+    # # scv
+    # def prepare_target(self, data, device):
+    #     x0 = data["x0"].to(device)
+    #     x1 = data["x1"].to(device)
+    #     adjoint1 = data["adjoint1"].to(device)
+
+    #     t = self.sample_t(x0).to(device).clamp(1e-3, 1.0 - 1e-3)
+    #     xt = self.sde.sample_base_posterior(t, x0, x1)
+    #     adjoint = adjoint1
+
+    #     ref = self.sde.ref_sde
+    #     x1_req = x1.detach().requires_grad_(True)
+    #     xt_det = xt.detach()
+    #     t_det = t.detach()
+    #     if hasattr(ref, "total_var"):
+    #         lam = ref._diffsquare_integral(t_det) / ref.total_var
+    #         sigma2 = ref.total_var
+    #     else:
+    #         lam = t_det
+    #         sigma2 = ref.sigma ** 2
+    #     lam = lam.clamp(1e-3, 1.0 - 1e-3)
+
+    #     E = self.grad_term_cost.energy.eval(x1_req)
+    #     if E.ndim == 1:
+    #         E = E.unsqueeze(-1)
+
+    #     h = self.neural_scv(x0.detach(), x1_req, E, xt_det, t_det)
+    #     F_ = (1.0 - lam).unsqueeze(-1) * h
+    #     d = x1_req.shape[-1]
+    #     if hasattr(ref, "n_particles"):
+    #         B = F_.shape[0]
+    #         F_ = graph_utils.remove_mean(
+    #             F_.reshape(B * d, d), ref.n_particles, ref.spatial_dim,
+    #         ).reshape(B, d, d)
+
+    #     score1 = ((xt_det - x1) / (sigma2 * (1.0 - lam)) - adjoint1).detach()
+
+    #     rows = []
+    #     for j in range(d):
+    #         div_j = 0.0
+    #         for i in range(d):
+    #             div_j = div_j + torch.autograd.grad(
+    #                 F_[:, j, i].sum(), x1_req,
+    #                 create_graph=True, retain_graph=True,
+    #             )[0][:, i]
+    #         rows.append(div_j)
+    #     div = torch.stack(rows, dim=-1)
+
+    #     phi = div + torch.einsum("bji,bi->bj", F_, score1)
+
+    #     self._check_target_shape(t, xt, adjoint)
+    #     return (t, xt), -adjoint, phi
 
 
     # # scv hutchinson

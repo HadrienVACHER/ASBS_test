@@ -38,6 +38,8 @@ def train_one_epoch(
 
     is_asbs_init_stage = train_utils.is_asbs_init_stage(epoch, cfg)
 
+    matcher._epoch_logw = []
+
     for _ in range(M):
         x0 = source.sample([B,]).to(device)
         timesteps = train_utils.get_timesteps(**cfg.timesteps).to(device)
@@ -172,6 +174,13 @@ def train_one_epoch(
         #     matcher.scv_scheduler.step()
 
     stats = {"loss": float(epoch_loss.compute().detach().cpu())}
+    if getattr(matcher, "_epoch_logw", None):
+        logw = torch.cat(matcher._epoch_logw).double()
+        w = (logw - logw.max()).exp()
+        ess = (w.sum() ** 2) / w.square().sum().clamp_min(1e-30)
+        stats["ess"] = float((ess / logw.numel()).cpu())
+        stats["logZ"] = float((torch.logsumexp(logw, 0) - torch.log(torch.tensor(logw.numel(), dtype=torch.float64))).cpu())
+
     if saw_cv:
         stats["cv_bias"] = float(cv_bias.compute().detach().cpu())
         stats["cv_var"] = float(cv_var.compute().detach().cpu())
