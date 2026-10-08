@@ -179,9 +179,8 @@ class AdjointVEMatcher(AdjointMatcher):
         ref = self.sde.ref_sde
         sigma2 = ref.total_var if hasattr(ref, "total_var") else ref.sigma ** 2
         d_eff = x1.shape[-1] - ref.spatial_dim if hasattr(ref, "n_particles") else x1.shape[-1]
-        log_pbase = -0.5 * x1.pow(2).sum(-1) / sigma2 - 0.5 * d_eff * torch.log(
-            2 * torch.pi * sigma2
-        )
+        log_const = torch.log(x1.new_tensor(2 * torch.pi * float(sigma2)))
+        log_pbase = -0.5 * x1.pow(2).sum(-1) / sigma2 - 0.5 * d_eff * log_const
         energy = self.grad_term_cost.energy.eval(x1)
         logw = logw - energy.view(-1) - log_pbase
         if not hasattr(self, "_epoch_logw"):
