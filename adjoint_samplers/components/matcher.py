@@ -228,58 +228,58 @@ class AdjointVEMatcher(AdjointMatcher):
     #     self._check_target_shape(t, xt, adjoint)
     #     return (t, xt), - adjoint
 
-    # # scv
-    # def prepare_target(self, data, device):
-    #     x0 = data["x0"].to(device)
-    #     x1 = data["x1"].to(device)
-    #     adjoint1 = data["adjoint1"].to(device)
+    # scv
+    def prepare_target(self, data, device):
+        x0 = data["x0"].to(device)
+        x1 = data["x1"].to(device)
+        adjoint1 = data["adjoint1"].to(device)
 
-    #     t = self.sample_t(x0).to(device).clamp(1e-3, 1.0 - 1e-3)
-    #     xt = self.sde.sample_base_posterior(t, x0, x1)
-    #     adjoint = adjoint1
+        t = self.sample_t(x0).to(device).clamp(1e-3, 1.0 - 1e-3)
+        xt = self.sde.sample_base_posterior(t, x0, x1)
+        adjoint = adjoint1
 
-    #     ref = self.sde.ref_sde
-    #     x1_req = x1.detach().requires_grad_(True)
-    #     xt_det = xt.detach()
-    #     t_det = t.detach()
-    #     if hasattr(ref, "total_var"):
-    #         lam = ref._diffsquare_integral(t_det) / ref.total_var
-    #         sigma2 = ref.total_var
-    #     else:
-    #         lam = t_det
-    #         sigma2 = ref.sigma ** 2
-    #     lam = lam.clamp(1e-3, 1.0 - 1e-3)
+        ref = self.sde.ref_sde
+        x1_req = x1.detach().requires_grad_(True)
+        xt_det = xt.detach()
+        t_det = t.detach()
+        if hasattr(ref, "total_var"):
+            lam = ref._diffsquare_integral(t_det) / ref.total_var
+            sigma2 = ref.total_var
+        else:
+            lam = t_det
+            sigma2 = ref.sigma ** 2
+        lam = lam.clamp(1e-3, 1.0 - 1e-3)
 
-    #     E = self.grad_term_cost.energy.eval(x1_req)
-    #     if E.ndim == 1:
-    #         E = E.unsqueeze(-1)
+        E = self.grad_term_cost.energy.eval(x1_req)
+        if E.ndim == 1:
+            E = E.unsqueeze(-1)
 
-    #     h = self.neural_scv(x0.detach(), x1_req, E, xt_det, t_det)
-    #     F_ = (1.0 - lam).unsqueeze(-1) * h
-    #     d = x1_req.shape[-1]
-    #     if hasattr(ref, "n_particles"):
-    #         B = F_.shape[0]
-    #         F_ = graph_utils.remove_mean(
-    #             F_.reshape(B * d, d), ref.n_particles, ref.spatial_dim,
-    #         ).reshape(B, d, d)
+        h = self.neural_scv(x0.detach(), x1_req, E, xt_det, t_det)
+        F_ = (1.0 - lam).unsqueeze(-1) * h
+        d = x1_req.shape[-1]
+        if hasattr(ref, "n_particles"):
+            B = F_.shape[0]
+            F_ = graph_utils.remove_mean(
+                F_.reshape(B * d, d), ref.n_particles, ref.spatial_dim,
+            ).reshape(B, d, d)
 
-    #     score1 = ((xt_det - x1) / (sigma2 * (1.0 - lam)) - adjoint1).detach()
+        score1 = ((xt_det - x1) / (sigma2 * (1.0 - lam)) - adjoint1).detach()
 
-    #     rows = []
-    #     for j in range(d):
-    #         div_j = 0.0
-    #         for i in range(d):
-    #             div_j = div_j + torch.autograd.grad(
-    #                 F_[:, j, i].sum(), x1_req,
-    #                 create_graph=True, retain_graph=True,
-    #             )[0][:, i]
-    #         rows.append(div_j)
-    #     div = torch.stack(rows, dim=-1)
+        rows = []
+        for j in range(d):
+            div_j = 0.0
+            for i in range(d):
+                div_j = div_j + torch.autograd.grad(
+                    F_[:, j, i].sum(), x1_req,
+                    create_graph=True, retain_graph=True,
+                )[0][:, i]
+            rows.append(div_j)
+        div = torch.stack(rows, dim=-1)
 
-    #     phi = div + torch.einsum("bji,bi->bj", F_, score1)
+        phi = div + torch.einsum("bji,bi->bj", F_, score1)
 
-    #     self._check_target_shape(t, xt, adjoint)
-    #     return (t, xt), -adjoint, phi
+        self._check_target_shape(t, xt, adjoint)
+        return (t, xt), -adjoint, phi
 
 
     # # scv hutchinson
@@ -321,55 +321,55 @@ class AdjointVEMatcher(AdjointMatcher):
     #     self._check_target_shape(t, xt, adjoint)
     #     return (t, xt), -adjoint, phi
 
-    # scv hutchinson v2
-    def prepare_target(self, data, device):
-        x0 = data["x0"].to(device)
-        x1 = data["x1"].to(device)
-        adjoint1 = data["adjoint1"].to(device)
+    # # scv hutchinson v2
+    # def prepare_target(self, data, device):
+    #     x0 = data["x0"].to(device)
+    #     x1 = data["x1"].to(device)
+    #     adjoint1 = data["adjoint1"].to(device)
 
-        t = self.sample_t(x0).to(device).clamp(1e-3, 1.0 - 1e-3)
-        xt = self.sde.sample_base_posterior(t, x0, x1)
-        adjoint = adjoint1
+    #     t = self.sample_t(x0).to(device).clamp(1e-3, 1.0 - 1e-3)
+    #     xt = self.sde.sample_base_posterior(t, x0, x1)
+    #     adjoint = adjoint1
 
-        ref = self.sde.ref_sde
-        xt_det = xt.detach()
-        t_det = t.detach()
-        if hasattr(ref, "total_var"):
-            lam = ref._diffsquare_integral(t_det) / ref.total_var
-            sigma2 = ref.total_var
-        else:
-            lam = t_det
-            sigma2 = ref.sigma ** 2
-        lam = lam.clamp(1e-3, 1.0 - 1e-3)
+    #     ref = self.sde.ref_sde
+    #     xt_det = xt.detach()
+    #     t_det = t.detach()
+    #     if hasattr(ref, "total_var"):
+    #         lam = ref._diffsquare_integral(t_det) / ref.total_var
+    #         sigma2 = ref.total_var
+    #     else:
+    #         lam = t_det
+    #         sigma2 = ref.sigma ** 2
+    #     lam = lam.clamp(1e-3, 1.0 - 1e-3)
 
-        score1 = ((xt_det - x1) / (sigma2 * (1.0 - lam)) - adjoint1).detach()
+    #     score1 = ((xt_det - x1) / (sigma2 * (1.0 - lam)) - adjoint1).detach()
 
-        eps = torch.empty_like(x1).bernoulli_(0.5).mul_(2).sub_(1)
-        centered = hasattr(ref, "n_particles")
-        if centered:
-            eps = graph_utils.remove_mean(eps, ref.n_particles, ref.spatial_dim)
+    #     eps = torch.empty_like(x1).bernoulli_(0.5).mul_(2).sub_(1)
+    #     centered = hasattr(ref, "n_particles")
+    #     if centered:
+    #         eps = graph_utils.remove_mean(eps, ref.n_particles, ref.spatial_dim)
 
-        def v_of(x):
-            E = self.grad_term_cost.energy.eval(x)
-            if E.ndim == 1:
-                E = E.unsqueeze(-1)
-            h = self.neural_scv(x0.detach(), x, E, xt_det, t_det)
-            F_ = (1.0 - lam).unsqueeze(-1) * h
-            if centered:
-                B, d, _ = F_.shape
-                F_ = graph_utils.remove_mean(
-                    F_.reshape(B * d, d), ref.n_particles, ref.spatial_dim,
-                ).reshape(B, d, d)
-            v = torch.einsum("bji,bi->bj", F_, eps)
-            return v, F_
+    #     def v_of(x):
+    #         E = self.grad_term_cost.energy.eval(x)
+    #         if E.ndim == 1:
+    #             E = E.unsqueeze(-1)
+    #         h = self.neural_scv(x0.detach(), x, E, xt_det, t_det)
+    #         F_ = (1.0 - lam).unsqueeze(-1) * h
+    #         if centered:
+    #             B, d, _ = F_.shape
+    #             F_ = graph_utils.remove_mean(
+    #                 F_.reshape(B * d, d), ref.n_particles, ref.spatial_dim,
+    #             ).reshape(B, d, d)
+    #         v = torch.einsum("bji,bi->bj", F_, eps)
+    #         return v, F_
 
-        (_, F_), (div, _) = torch.autograd.functional.jvp(
-            v_of, x1.detach(), eps, create_graph=True,
-        )
-        phi = div + torch.einsum("bji,bi->bj", F_, score1)
+    #     (_, F_), (div, _) = torch.autograd.functional.jvp(
+    #         v_of, x1.detach(), eps, create_graph=True,
+    #     )
+    #     phi = div + torch.einsum("bji,bi->bj", F_, score1)
 
-        self._check_target_shape(t, xt, adjoint)
-        return (t, xt), -adjoint, phi
+    #     self._check_target_shape(t, xt, adjoint)
+    #     return (t, xt), -adjoint, phi
 
 
 
