@@ -235,7 +235,22 @@ class AdjointVEMatcher(AdjointMatcher):
         else:
             lam = t_det
             sigma2 = ref.sigma ** 2
-        lam = lam.clamp(1e-3, 1.0 - 1e-3)
+
+        lam_raw = lam
+        lam = lam_raw.clamp(1e-3, 1.0 - 1e-3)
+
+        sigma_n = 0.1
+        eps = torch.randn_like(x1)
+        if hasattr(ref, "n_particles"):
+            eps = graph_utils.remove_mean(eps, ref.n_particles, ref.spatial_dim)
+        x_noisy = x1.detach() + sigma_n * eps
+        pred = self.buffer_score(x_noisy)
+        if hasattr(ref, "n_particles"):
+            pred = graph_utils.remove_mean(pred, ref.n_particles, ref.spatial_dim)
+        loss_s = torch.nn.functional.mse_loss(pred, -eps / sigma_n)
+        self.score_optimizer.zero_grad()
+        loss_s.backward()
+        self.score_optimizer.step()
 
         E = self.grad_term_cost.energy.eval(x1_req)
         if E.ndim == 1:
@@ -250,7 +265,13 @@ class AdjointVEMatcher(AdjointMatcher):
                 F_.reshape(B * d, d), ref.n_particles, ref.spatial_dim,
             ).reshape(B, d, d)
 
-        score1 = ((xt_det - x1) / (sigma2 * (1.0 - lam)) - adjoint1).detach()
+        s_hat = self.buffer_score(x1.detach())
+        if hasattr(ref, "n_particles"):
+            s_hat = graph_utils.remove_mean(s_hat, ref.n_particles, ref.spatial_dim)
+        bridge = (
+            xt_det - (1.0 - lam_raw) * x0 - lam_raw * x1
+        ) / (sigma2 * (1.0 - lam_raw).clamp_min(1e-5))
+        score1 = (s_hat + bridge).detach()
 
         rows = []
         for j in range(d):

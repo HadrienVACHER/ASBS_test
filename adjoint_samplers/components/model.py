@@ -481,6 +481,20 @@ class NeuralSCV(nn.Module):
         out = self.net(torch.cat([x0, x1, e, xt, t], dim=-1))
         return out.view(-1, self.dim, self.dim)
 
+class BufferScore(nn.Module):
+    def __init__(self, dim: int, hidden: int = 64):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(dim, hidden),
+            nn.SiLU(),
+            nn.Linear(hidden, hidden),
+            nn.SiLU(),
+            nn.Linear(hidden, dim),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
 class CondMean(nn.Module):
     def __init__(self, dim: int, hidden: int = 64):
         super().__init__()

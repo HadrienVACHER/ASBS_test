@@ -101,6 +101,14 @@ def main(cfg):
             cond_mean.parameters(), lr=1e-3
         )
 
+        from adjoint_samplers.components.model import BufferScore
+
+        buffer_score = BufferScore(dim=cfg.dim).to(device)
+        adjoint_matcher.buffer_score = buffer_score
+        adjoint_matcher.score_optimizer = torch.optim.Adam(
+            buffer_score.parameters(), lr=1e-3
+        )
+
 
         print("Instantiating optimizer...")
         if corrector is not None:
