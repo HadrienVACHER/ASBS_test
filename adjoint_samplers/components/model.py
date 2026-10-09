@@ -220,6 +220,33 @@ class EGNN_dynamics(nn.Module):
         return self._edges_dict[n_batch]
 
 
+class EGNNPotential(EGNN_dynamics):
+    """Scalar ψ(x), invariant to permutation and rigid motions.
+
+    Evaluated at the terminal time. Its gradient is conservative and mean-free,
+    and is regressed onto the corrector, which is only a vector field.
+    """
+
+    def forward(self, xs):
+        n_batch = xs.shape[0]
+        edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles)
+        edges = [edges[0].to(xs.device), edges[1].to(xs.device)]
+        x = xs.reshape(n_batch * self._n_particles, self._spatial_dim).clone()
+        # Terminal potential: the corrector is read at t = 1, where the
+        # time-conditioned node feature is identically one.
+        h = torch.ones(n_batch * self._n_particles, 1, device=xs.device, dtype=xs.dtype)
+        edge_attr = torch.sum((x[edges[0]] - x[edges[1]]) ** 2, dim=1, keepdim=True)
+        h_final, _ = self.egnn(h, x, edges, edge_attr=edge_attr)
+        return h_final.view(n_batch, self._n_particles).sum(dim=-1)
+
+    def gradient(self, xs):
+        xs = xs.detach().requires_grad_(True)
+        psi = self.forward(xs)
+        g = torch.autograd.grad(psi.sum(), xs, create_graph=True)[0]
+        g = remove_mean(g, self._n_particles, self._spatial_dim)
+        return psi, g
+
+
 class EGNN(nn.Module):
     def __init__(
         self,

@@ -39,11 +39,26 @@ def train_one_epoch(
     is_asbs_init_stage = train_utils.is_asbs_init_stage(epoch, cfg)
 
     matcher._epoch_logw = []
+    matcher._fresh_count = 0
 
     for _ in range(M):
         x0 = source.sample([B,]).to(device)
         timesteps = train_utils.get_timesteps(**cfg.timesteps).to(device)
         matcher.populate_buffer(x0, timesteps, is_asbs_init_stage)
+
+    psi_stats = None
+    if getattr(matcher, "potential", None) is not None and hasattr(matcher, "write_sb_logw"):
+        # The first corrector stage still corresponds to a zero corrector: the
+        # network has not been trained, so the bridge weight uses ψ = 0.
+        zero_psi = is_asbs_init_stage or (
+            getattr(matcher, "sb_on_corrector", False)
+            and not train_utils.corrector_has_been_trained(epoch, cfg)
+        )
+        if not zero_psi:
+            psi_stats = matcher.fit_potential(cfg.train_batch_size, device)
+            if psi_stats is not None:
+                matcher._psi_ready = True
+        matcher.write_sb_logw(device, zero_psi)
 
     dataloader = matcher.build_dataloader(cfg.train_batch_size)
     epoch_loss = MeanMetric().to(device, non_blocking=True)
@@ -174,6 +189,8 @@ def train_one_epoch(
         #     matcher.scv_scheduler.step()
 
     stats = {"loss": float(epoch_loss.compute().detach().cpu())}
+    if psi_stats:
+        stats.update(psi_stats)
     if getattr(matcher, "_epoch_logw", None):
         logw = torch.cat(matcher._epoch_logw).double()
         w = (logw - logw.max()).exp()

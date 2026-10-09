@@ -89,6 +89,18 @@ def is_asbs_init_stage(epoch: int, cfg: DictConfig):
     return epoch < n
 
 
+def corrector_has_been_trained(epoch: int, cfg: DictConfig):
+    """True once a corrector stage has finished, so ψ is no longer the zero field."""
+    if "corrector" not in cfg:
+        return False
+
+    n_a = cfg.adjoint_matcher.num_epochs_per_stage
+    n_c = cfg.corrector_matcher.num_epochs_per_stage
+    if cfg.init_stage == "corrector":
+        return epoch >= n_c
+    return epoch >= n_a + n_c
+
+
 def determine_stage(epoch: int, cfg: DictConfig):
     if "corrector" not in cfg:
         return "adjoint"
@@ -145,6 +157,9 @@ def save(
     state["controller"] = get_state_dict(controller)
     if corrector is not None:
         state["corrector"] = get_state_dict(corrector)
+    if getattr(adjoint_matcher, "potential", None) is not None:
+        state["potential"] = adjoint_matcher.potential.state_dict()
+        state["potential_optimizer"] = adjoint_matcher.potential_optimizer.state_dict()
 
     # Save current checkpoint
     torch.save(state, ckpt_dir / "checkpoint_{}.pt".format(epoch))
@@ -172,6 +187,13 @@ def load(
 
     if corrector is not None and "corrector" in checkpoint:
         corrector.load_state_dict(checkpoint["corrector"])
+
+    if getattr(adjoint_matcher, "potential", None) is not None and "potential" in checkpoint:
+        adjoint_matcher.potential.load_state_dict(checkpoint["potential"])
+        if "potential_optimizer" in checkpoint:
+            adjoint_matcher.potential_optimizer.load_state_dict(
+                checkpoint["potential_optimizer"]
+            )
 
     if corrector_matcher is not None and "corrector_buffer" in checkpoint:
         corrector_matcher.buffer.load_state_dict(checkpoint["corrector_buffer"])

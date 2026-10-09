@@ -18,7 +18,7 @@ import adjoint_samplers.utils.distributed_mode as distributed_mode
 
 # from adjoint_samplers.components.model import TemporalGate
 
-from adjoint_samplers.components.model import NeuralSCV, CondMean
+from adjoint_samplers.components.model import NeuralSCV, CondMean, EGNNPotential
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -101,6 +101,37 @@ def main(cfg):
             cond_mean.parameters(), lr=1e-3
         )
 
+        # Adjoint-sampling weights are the wrong terminal factor for ASBS.
+        adjoint_matcher.use_is = corrector is None
+        if corrector is not None and cfg.get("n_particles") is not None:
+            print("Instantiating scalar potential...")
+            c = cfg.corrector
+            potential = EGNNPotential(
+                n_particles=int(cfg.n_particles),
+                spatial_dim=int(cfg.spatial_dim),
+                hidden_nf=int(c.get("hidden_nf", 128)),
+                n_layers=int(c.get("n_layers", 5)),
+                act_fn=torch.nn.SiLU(),
+                recurrent=bool(c.get("recurrent", True)),
+                tanh=bool(c.get("tanh", True)),
+                attention=bool(c.get("attention", True)),
+                condition_time=True,
+                agg=str(c.get("agg", "sum")),
+            ).to(device)
+            adjoint_matcher.potential = potential
+            adjoint_matcher.potential_steps = 20
+            adjoint_matcher.phi0_samples = 64
+            adjoint_matcher.potential_optimizer = torch.optim.Adam(
+                potential.parameters(), lr=1e-4,
+            )
+            # Same ψ and the same bridge weight on the corrector buffer.
+            corrector_matcher.potential = potential
+            corrector_matcher.potential_steps = adjoint_matcher.potential_steps
+            corrector_matcher.phi0_samples = adjoint_matcher.phi0_samples
+            corrector_matcher.potential_optimizer = adjoint_matcher.potential_optimizer
+            corrector_matcher.grad_term_cost = grad_term_cost
+            corrector_matcher.sb_on_corrector = True
+
 
         print("Instantiating optimizer...")
         if corrector is not None:
@@ -177,6 +208,9 @@ def main(cfg):
             if "ess" in stats:
                 log_dict[f"{stage}_ess"] = stats["ess"]
                 log_dict[f"{stage}_logZ"] = stats["logZ"]
+            if "psi_rel" in stats:
+                log_dict[f"{stage}_psi_rel"] = stats["psi_rel"]
+                log_dict[f"{stage}_psi_loss"] = stats["psi_loss"]
 
             if "cv_bias" in stats:
                 log_dict[f"{stage}_cv_bias"] = stats["cv_bias"]
@@ -190,10 +224,15 @@ def main(cfg):
                 log_dict[f"{stage}_phi_r2"] = stats["phi_r2"]
             writer.log(log_dict, step=epoch)
 
+            line = green(f"loss={loss:.4f}")
+            if "ess" in stats:
+                line = line + "  " + magenta(f"ess={stats['ess']:.3f}")
+            if "psi_rel" in stats:
+                line = line + "  " + magenta(f"psi_rel={stats['psi_rel']:.3f}")
             print("[{0} | {1}] {2}".format(
                 cyan(  f"{stage:<7}"),
                 yellow(f"ep={epoch:04}"),
-                green( f"loss={loss:.4f}"),
+                line,
             ))
 
             # Eval epoch according to the frequency
