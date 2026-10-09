@@ -201,22 +201,38 @@ class AdjointVEMatcher(AdjointMatcher):
             var = var + g.pow(2) * dt
         self._terminal_var = float(var.detach().cpu())
 
+    def _phi0_rollouts(self, x0, timesteps, reference_only):
+        """K controlled paths from each x0. log φ₀ = logmeanexp(G − E − ψ)."""
+        K = int(getattr(self, "phi0_samples", 8))
+        B, D = x0.shape
+        x0k = x0.repeat_interleave(K, dim=0)
+        if reference_only:
+            _, x1k = sdeint(self.sde.ref_sde, x0k, timesteps, only_boundary=True)
+            loggk = torch.zeros(B * K, device=x0.device, dtype=x0.dtype)
+        else:
+            _, x1k, loggk = sdeint_logw(self.sde, x0k, timesteps)
+        return x1k.reshape(B, K, D), loggk.reshape(B, K)
+
     def populate_buffer(self, x0, timesteps, is_asbs_init_stage):
-        # ASBS: store the path Girsanov factor. The terminal factor is written
-        # once ψ has been fit, by write_sb_logw.
+        # ASBS: one controlled path is kept for training. K paths from the same
+        # x0 estimate φ₀. write_sb_logw applies the current ψ to those paths.
         if getattr(self, "potential", None) is not None:
-            if self.buffer.batches and "log_girsanov" not in self.buffer.batches:
+            if self.buffer.batches and "phi0_logg" not in self.buffer.batches:
                 self.buffer.batches = {}
             self._set_terminal_var(timesteps)
-            (x0, x1, log_g) = sdeint_logw(self.sde, x0, timesteps)
+            x1k, loggk = self._phi0_rollouts(x0, timesteps, reference_only=False)
+            x1 = x1k[:, 0]
+            log_g = loggk[:, 0]
             adjoint1 = self._compute_adjoint1(x1, is_asbs_init_stage).clone()
             self._check_buffer_sample_shape(x0, x1, adjoint1)
             self._fresh_count = getattr(self, "_fresh_count", 0) + x0.shape[0]
             self.buffer.add({
                 "x0": x0.to("cpu"),
-                "x1": x1.to("cpu"),
+                "x1": x1.detach().cpu(),
                 "adjoint1": adjoint1.to("cpu"),
                 "log_girsanov": log_g.detach().cpu(),
+                "phi0_x1": x1k.detach().cpu(),
+                "phi0_logg": loggk.detach().cpu(),
             })
             return
 
@@ -262,18 +278,73 @@ class AdjointVEMatcher(AdjointMatcher):
         assert t.shape == (B, 1) and adjoint.shape == (B, D)
 
 
-    # original prepare_target
     def prepare_target(self, data, device):
         x0 = data["x0"].to(device)
         x1 = data["x1"].to(device)
         adjoint1 = data["adjoint1"].to(device)
 
         t = self.sample_t(x0).to(device)
+        adjoint = adjoint1
+        use_cv = (
+            getattr(self, "cond_score", None) is not None
+            and getattr(self, "neural_scv", None) is not None
+        )
+        if use_cv:
+            t = t.clamp(1e-3, 1.0 - 1e-3)
         xt = self.sde.sample_base_posterior(t, x0, x1)
-        adjoint = adjoint1 # const w.r.t. time in this case
+
+        if not use_cv:
+            self._check_target_shape(t, xt, adjoint)
+            return (t, xt), -adjoint
+        ref = self.sde.ref_sde
+        x1_req = x1.detach().requires_grad_(True)
+        xt_det = xt.detach()
+        t_det = t.detach()
+        x0_det = x0.detach()
+        if hasattr(ref, "total_var"):
+            lam = ref._diffsquare_integral(t_det) / ref.total_var
+            sigma2 = ref.total_var
+        else:
+            lam = t_det
+            sigma2 = ref.sigma ** 2
+        lam = lam.clamp(1e-3, 1.0 - 1e-3)
+
+        E = self.grad_term_cost.energy.eval(x1_req)
+        if E.ndim == 1:
+            E = E.unsqueeze(-1)
+
+        h = self.neural_scv(x0_det, x1_req, E, xt_det, t_det)
+        F_ = (1.0 - lam).unsqueeze(-1) * h
+        d = x1_req.shape[-1]
+        if hasattr(ref, "n_particles"):
+            B = F_.shape[0]
+            F_ = graph_utils.remove_mean(
+                F_.reshape(B * d, d), ref.n_particles, ref.spatial_dim,
+            ).reshape(B, d, d)
+
+        # ∇_{x1} log q(x1 | x0, xt, t) = ∇_{x1} log q(x1 | x0) + bridge term.
+        # The network supplies the buffer conditional score. The bridge term is exact.
+        s = self.cond_score(x0_det, x1_req.detach())
+        if hasattr(ref, "n_particles"):
+            s = graph_utils.remove_mean(s, ref.n_particles, ref.spatial_dim)
+        bridge = (xt_det - (1.0 - lam) * x0_det - lam * x1) / (sigma2 * (1.0 - lam))
+        score1 = (s + bridge).detach()
+
+        rows = []
+        for j in range(d):
+            div_j = 0.0
+            for i in range(d):
+                div_j = div_j + torch.autograd.grad(
+                    F_[:, j, i].sum(), x1_req,
+                    create_graph=True, retain_graph=True,
+                )[0][:, i]
+            rows.append(div_j)
+        div = torch.stack(rows, dim=-1)
+
+        phi = div + torch.einsum("bji,bi->bj", F_, score1)
 
         self._check_target_shape(t, xt, adjoint)
-        return (t, xt), - adjoint
+        return (t, xt), -adjoint, phi
 
     # # scv
     # def prepare_target(self, data, device):
@@ -368,57 +439,123 @@ class AdjointVEMatcher(AdjointMatcher):
             corrector.train(was_training)
         return {"psi_loss": last_loss, "psi_rel": last_rel}
 
+    def fit_cond_score(self, batch_size, device):
+        """Sliced score matching for ∇_{x1} log q(x1 | x0) on the training buffer."""
+        net = getattr(self, "cond_score", None)
+        if net is None or "x1" not in self.buffer.batches:
+            return None
+        x0_all = self._buffer_cat("x0")
+        x1_all = self._buffer_cat("x1")
+        n = x1_all.shape[0]
+        if n == 0:
+            return None
+        if "logw" in self.buffer.batches:
+            logw = self._buffer_cat("logw").double()
+            w = (logw - logw.max()).exp()
+            w = (w / w.sum()).float()
+        else:
+            w = None
+
+        ref = self.sde.ref_sde
+        centered = hasattr(ref, "n_particles")
+        sigma2 = float(getattr(self, "_terminal_var", getattr(ref, "total_var", 1.0)))
+        has_adj = "adjoint1" in self.buffer.batches
+        adj_all = self._buffer_cat("adjoint1") if has_adj else None
+
+        steps = int(getattr(self, "cond_score_steps", 20))
+        bs = min(int(batch_size), n)
+        net.train()
+        last_loss = 0.0
+        last_gap = None
+        for _ in range(steps):
+            if w is None:
+                idx = torch.randint(0, n, (bs,))
+            else:
+                idx = torch.multinomial(w, bs, replacement=True)
+            x0 = x0_all[idx].to(device)
+            x1 = x1_all[idx].to(device).detach().requires_grad_(True)
+            s = net(x0, x1)
+            if centered:
+                s = graph_utils.remove_mean(s, ref.n_particles, ref.spatial_dim)
+            div = torch.zeros(bs, device=device, dtype=x1.dtype)
+            for i in range(x1.shape[-1]):
+                grad_i = torch.autograd.grad(
+                    s[:, i].sum(), x1, create_graph=True, retain_graph=True,
+                )[0]
+                div = div + grad_i[:, i]
+            loss = (s.pow(2).sum(-1) + 2.0 * div).mean()
+            self.cond_score_optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=10.0)
+            self.cond_score_optimizer.step()
+            last_loss = float(loss.detach())
+            if has_adj:
+                with torch.no_grad():
+                    s_fp = (x0 - x1.detach()) / sigma2 - adj_all[idx].to(device)
+                    if centered:
+                        s_fp = graph_utils.remove_mean(s_fp, ref.n_particles, ref.spatial_dim)
+                    err = (s.detach() - s_fp).pow(2).sum(-1).mean().sqrt()
+                    den = s_fp.pow(2).sum(-1).mean().sqrt().clamp_min(1e-8)
+                    last_gap = float(err / den)
+        out = {"score_loss": last_loss}
+        if last_gap is not None:
+            out["score_fp_rel"] = last_gap
+        return out
+
     @torch.no_grad()
     def write_sb_logw(self, device, is_init):
         """log dP*/dP_u = Girsanov − E(X_1) − ψ(X_1) − log φ_0(X_0).
 
-        φ_1 ∝ exp(−E − ψ) with ψ ≈ log φ̂_1, and φ_0(x0) is the expectation of
-        φ_1 under the reference endpoint law started at x0. During the initial
-        adjoint stage the corrector is zero, so ψ = 0.
+        φ₀(x0) = E_u[ exp(Girsanov − E − ψ) | X_0 = x0 ], estimated by the K
+        controlled rollouts stored with the sample. The integrand is constant
+        at the optimal control, so the Monte Carlo noise vanishes there.
+        During the initial stage the corrector is zero, so ψ = 0.
         """
-        if "log_girsanov" not in self.buffer.batches:
+        if "phi0_logg" not in self.buffer.batches:
             return
         chunks = []
-        for x0, x1, log_g in zip(
-            self.buffer.batches["x0"],
+        for x1, log_g, x1k, loggk in zip(
             self.buffer.batches["x1"],
             self.buffer.batches["log_girsanov"],
+            self.buffer.batches["phi0_x1"],
+            self.buffer.batches["phi0_logg"],
         ):
             chunks.append(self._sb_logw(
-                x0.to(device), x1.to(device), log_g.to(device), is_init,
+                x1.to(device), log_g.to(device), x1k.to(device), loggk.to(device), is_init,
             ).detach().cpu())
         self.buffer.batches["logw"] = chunks
         fresh = torch.cat(chunks, dim=0)
         n_fresh = int(getattr(self, "_fresh_count", fresh.shape[0]))
         self._epoch_logw = [fresh[-n_fresh:]]
 
-    def _sb_logw(self, x0, x1, log_girsanov, is_init):
+    def _sb_logw(self, x1, log_girsanov, phi0_x1, phi0_logg, is_init):
         step = 512
         parts = []
-        for i in range(0, x0.shape[0], step):
+        for i in range(0, x1.shape[0], step):
             parts.append(self._sb_logw_batch(
-                x0[i:i + step], x1[i:i + step], log_girsanov[i:i + step], is_init,
+                x1[i:i + step],
+                log_girsanov[i:i + step],
+                phi0_x1[i:i + step],
+                phi0_logg[i:i + step],
+                is_init,
             ))
         return torch.cat(parts, dim=0)
 
-    def _sb_logw_batch(self, x0, x1, log_girsanov, is_init):
-        K = int(getattr(self, "phi0_samples", 8))
-        std = x0.new_tensor(self._terminal_var).sqrt()
-        B = x0.shape[0]
-        y = x0.repeat_interleave(K, dim=0)
-        y = y + self.sde.ref_sde.randn_like(y) * std
-        energy_y = self.grad_term_cost.energy.eval(y).reshape(B, K)
+    def _sb_logw_batch(self, x1, log_girsanov, phi0_x1, phi0_logg, is_init):
+        B, K, D = phi0_x1.shape
+        flat = phi0_x1.reshape(B * K, D)
+        energy_k = self.grad_term_cost.energy.eval(flat).reshape(B, K)
         use_psi = (not is_init) and getattr(self, "_psi_ready", False)
         if use_psi:
             was = self.potential.training
             self.potential.eval()
-            psi_y = self.potential(y).reshape(B, K)
+            psi_k = self.potential(flat).reshape(B, K)
             psi_x1 = self.potential(x1).reshape(B)
             self.potential.train(was)
         else:
-            psi_y = torch.zeros(B, K, device=x0.device, dtype=x0.dtype)
-            psi_x1 = torch.zeros(B, device=x0.device, dtype=x0.dtype)
-        log_phi0 = torch.logsumexp(-energy_y - psi_y, dim=1) - math.log(K)
+            psi_k = torch.zeros(B, K, device=x1.device, dtype=x1.dtype)
+            psi_x1 = torch.zeros(B, device=x1.device, dtype=x1.dtype)
+        log_phi0 = torch.logsumexp(phi0_logg - energy_k - psi_k, dim=1) - math.log(K)
         energy_x1 = self.grad_term_cost.energy.eval(x1).reshape(B)
         return log_girsanov.reshape(B) - energy_x1 - psi_x1 - log_phi0
 
@@ -556,11 +693,18 @@ class CorrectorMatcher(Matcher):
     def write_sb_logw(self, device, is_init):
         return AdjointVEMatcher.write_sb_logw(self, device, is_init)
 
-    def _sb_logw(self, x0, x1, log_girsanov, is_init):
-        return AdjointVEMatcher._sb_logw(self, x0, x1, log_girsanov, is_init)
+    def _phi0_rollouts(self, x0, timesteps, reference_only):
+        return AdjointVEMatcher._phi0_rollouts(self, x0, timesteps, reference_only)
 
-    def _sb_logw_batch(self, x0, x1, log_girsanov, is_init):
-        return AdjointVEMatcher._sb_logw_batch(self, x0, x1, log_girsanov, is_init)
+    def _sb_logw(self, x1, log_girsanov, phi0_x1, phi0_logg, is_init):
+        return AdjointVEMatcher._sb_logw(
+            self, x1, log_girsanov, phi0_x1, phi0_logg, is_init,
+        )
+
+    def _sb_logw_batch(self, x1, log_girsanov, phi0_x1, phi0_logg, is_init):
+        return AdjointVEMatcher._sb_logw_batch(
+            self, x1, log_girsanov, phi0_x1, phi0_logg, is_init,
+        )
 
     def populate_buffer(
             self,
@@ -571,20 +715,22 @@ class CorrectorMatcher(Matcher):
         # IPF init: First Corrector Matching stage
         # of ASBS uses zero controller (i.e., ref_sde)
         if getattr(self, "potential", None) is not None:
-            if self.buffer.batches and "log_girsanov" not in self.buffer.batches:
+            if self.buffer.batches and "phi0_logg" not in self.buffer.batches:
                 self.buffer.batches = {}
             self._set_terminal_var(timesteps)
-            if is_asbs_init_stage:
-                x0, x1 = sdeint(self.sde.ref_sde, x0, timesteps, only_boundary=True)
-                log_g = torch.zeros(x0.shape[0], device=x0.device, dtype=x0.dtype)
-            else:
-                x0, x1, log_g = sdeint_logw(self.sde, x0, timesteps)
+            x1k, loggk = self._phi0_rollouts(
+                x0, timesteps, reference_only=is_asbs_init_stage,
+            )
+            x1 = x1k[:, 0]
+            log_g = loggk[:, 0]
             self._check_buffer_sample_shape(x0, x1)
             self._fresh_count = getattr(self, "_fresh_count", 0) + x0.shape[0]
             self.buffer.add({
                 "x0": x0.to("cpu"),
-                "x1": x1.to("cpu"),
+                "x1": x1.detach().cpu(),
                 "log_girsanov": log_g.detach().cpu(),
+                "phi0_x1": x1k.detach().cpu(),
+                "phi0_logg": loggk.detach().cpu(),
             })
             return
 

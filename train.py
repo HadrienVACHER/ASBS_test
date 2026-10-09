@@ -18,7 +18,7 @@ import adjoint_samplers.utils.distributed_mode as distributed_mode
 
 # from adjoint_samplers.components.model import TemporalGate
 
-from adjoint_samplers.components.model import NeuralSCV, CondMean, EGNNPotential
+from adjoint_samplers.components.model import EGNNPotential
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -89,17 +89,8 @@ def main(cfg):
             sde=sde,
         )
 
-        # #comment if asbs baseline
-        # neural_scv = NeuralSCV(dim=cfg.dim).to(device)
-        # adjoint_matcher.neural_scv = neural_scv
-        # adjoint_matcher.scv_optimizer = torch.optim.Adam(
-        #     neural_scv.parameters(), lr=1e-3
-        # )
-        # cond_mean = CondMean(dim=cfg.dim).to(device)
-        # adjoint_matcher.cond_mean = cond_mean
-        # adjoint_matcher.cond_optimizer = torch.optim.Adam(
-        #     cond_mean.parameters(), lr=1e-3
-        # )
+        # Stein control variate is off. prepare_target then returns the plain
+        # adjoint target, and the bridge weight is the only change to ASBS.
 
         # Adjoint-sampling weights are the wrong terminal factor for ASBS.
         adjoint_matcher.use_is = corrector is None
@@ -120,7 +111,7 @@ def main(cfg):
             ).to(device)
             adjoint_matcher.potential = potential
             adjoint_matcher.potential_steps = 20
-            adjoint_matcher.phi0_samples = 64
+            adjoint_matcher.phi0_samples = 8
             adjoint_matcher.potential_optimizer = torch.optim.Adam(
                 potential.parameters(), lr=1e-4,
             )
@@ -213,6 +204,10 @@ def main(cfg):
             if "psi_rel" in stats:
                 log_dict[f"{stage}_psi_rel"] = stats["psi_rel"]
                 log_dict[f"{stage}_psi_loss"] = stats["psi_loss"]
+            if "score_loss" in stats:
+                log_dict[f"{stage}_score_loss"] = stats["score_loss"]
+            if "score_fp_rel" in stats:
+                log_dict[f"{stage}_score_fp_rel"] = stats["score_fp_rel"]
 
             if "cv_bias" in stats:
                 log_dict[f"{stage}_cv_bias"] = stats["cv_bias"]
@@ -231,6 +226,8 @@ def main(cfg):
                 line = line + "  " + magenta(f"ess={stats['ess']:.3f}")
             if "psi_rel" in stats:
                 line = line + "  " + magenta(f"psi_rel={stats['psi_rel']:.3f}")
+            if "score_fp_rel" in stats:
+                line = line + "  " + magenta(f"score_fp={stats['score_fp_rel']:.3f}")
             print("[{0} | {1}] {2}".format(
                 cyan(  f"{stage:<7}"),
                 yellow(f"ep={epoch:04}"),

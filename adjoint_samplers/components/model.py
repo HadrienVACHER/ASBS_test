@@ -247,6 +247,54 @@ class EGNNPotential(EGNN_dynamics):
         return psi, g
 
 
+class EGNNCondScore(EGNN_dynamics):
+    """Equivariant estimate of ∇_{x1} log q(x1 | x0) for the buffer law q."""
+
+    def __init__(self, n_particles, spatial_dim, hidden_nf=128, n_layers=4, act_fn=torch.nn.SiLU(), recurrent=True, tanh=True, attention=True, agg="sum"):
+        super().__init__(
+            n_particles=n_particles,
+            spatial_dim=spatial_dim,
+            hidden_nf=hidden_nf,
+            n_layers=n_layers,
+            act_fn=act_fn,
+            recurrent=recurrent,
+            attention=attention,
+            tanh=tanh,
+            agg=agg,
+            condition_time=False,
+        )
+        self.egnn = EGNN(
+            in_node_nf=1,
+            in_edge_nf=2,
+            hidden_nf=hidden_nf,
+            act_fn=act_fn,
+            n_layers=n_layers,
+            recurrent=recurrent,
+            attention=attention,
+            tanh=tanh,
+            agg=agg,
+        )
+
+    def forward(self, x0, x1):
+        n_batch = x1.shape[0]
+        edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles)
+        edges = [edges[0].to(x1.device), edges[1].to(x1.device)]
+        x = x1.reshape(n_batch * self._n_particles, self._spatial_dim).clone()
+        x0f = x0.reshape(n_batch * self._n_particles, self._spatial_dim)
+        h = torch.ones(n_batch * self._n_particles, 1, device=x1.device, dtype=x1.dtype)
+        d1 = torch.sum((x[edges[0]] - x[edges[1]]) ** 2, dim=1, keepdim=True)
+        d0 = torch.sum((x0f[edges[0]] - x0f[edges[1]]) ** 2, dim=1, keepdim=True)
+        h_final, x_final = self.egnn(h, x, edges, edge_attr=torch.cat([d1, d0], dim=-1))
+        vel = (x_final - x).view(n_batch, self._n_particles, self._spatial_dim)
+        # The bond update spans directions inside x1. The conditional score also
+        # points along x1 - x0, with an invariant scale from the node embedding.
+        delta = (x1 - x0).view(n_batch, self._n_particles, self._spatial_dim)
+        coeff = h_final.view(n_batch, self._n_particles, 1)
+        vel = vel + coeff * delta
+        vel = remove_mean(vel, self._n_particles, self._spatial_dim)
+        return vel.view(n_batch, self._n_particles * self._spatial_dim)
+
+
 class EGNN(nn.Module):
     def __init__(
         self,
@@ -507,6 +555,23 @@ class NeuralSCV(nn.Module):
     def forward(self, x0, x1, e, xt, t):
         out = self.net(torch.cat([x0, x1, e, xt, t], dim=-1))
         return out.view(-1, self.dim, self.dim)
+
+class CondScore(nn.Module):
+    """MLP estimate of ∇_{x1} log q(x1 | x0) for a flat (non-particle) buffer."""
+
+    def __init__(self, dim: int, hidden: int = 128):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(2 * dim, hidden),
+            nn.SiLU(),
+            nn.Linear(hidden, hidden),
+            nn.SiLU(),
+            nn.Linear(hidden, dim),
+        )
+
+    def forward(self, x0, x1):
+        return self.net(torch.cat([x0, x1], dim=-1))
+
 
 class CondMean(nn.Module):
     def __init__(self, dim: int, hidden: int = 64):

@@ -60,6 +60,10 @@ def train_one_epoch(
                 matcher._psi_ready = True
         matcher.write_sb_logw(device, zero_psi)
 
+    score_stats = None
+    if getattr(matcher, "cond_score", None) is not None and hasattr(matcher, "fit_cond_score"):
+        score_stats = matcher.fit_cond_score(cfg.train_batch_size, device)
+
     dataloader = matcher.build_dataloader(cfg.train_batch_size)
     epoch_loss = MeanMetric().to(device, non_blocking=True)
 
@@ -191,6 +195,8 @@ def train_one_epoch(
     stats = {"loss": float(epoch_loss.compute().detach().cpu())}
     if psi_stats:
         stats.update(psi_stats)
+    if score_stats:
+        stats.update(score_stats)
     if getattr(matcher, "_epoch_logw", None):
         logw = torch.cat(matcher._epoch_logw).double()
         w = (logw - logw.max()).exp()

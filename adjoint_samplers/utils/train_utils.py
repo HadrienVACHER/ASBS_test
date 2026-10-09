@@ -160,6 +160,9 @@ def save(
     if getattr(adjoint_matcher, "potential", None) is not None:
         state["potential"] = adjoint_matcher.potential.state_dict()
         state["potential_optimizer"] = adjoint_matcher.potential_optimizer.state_dict()
+    if getattr(adjoint_matcher, "cond_score", None) is not None:
+        state["cond_score"] = adjoint_matcher.cond_score.state_dict()
+        state["cond_score_optimizer"] = adjoint_matcher.cond_score_optimizer.state_dict()
 
     # Save current checkpoint
     torch.save(state, ckpt_dir / "checkpoint_{}.pt".format(epoch))
@@ -193,6 +196,13 @@ def load(
         if "potential_optimizer" in checkpoint:
             adjoint_matcher.potential_optimizer.load_state_dict(
                 checkpoint["potential_optimizer"]
+            )
+
+    if getattr(adjoint_matcher, "cond_score", None) is not None and "cond_score" in checkpoint:
+        adjoint_matcher.cond_score.load_state_dict(checkpoint["cond_score"])
+        if "cond_score_optimizer" in checkpoint:
+            adjoint_matcher.cond_score_optimizer.load_state_dict(
+                checkpoint["cond_score_optimizer"]
             )
 
     if corrector_matcher is not None and "corrector_buffer" in checkpoint:
