@@ -37,7 +37,11 @@ class Matcher:
             w = w / w.sum()
             cap = 10.0 / w.numel()
             w = torch.clamp(w, max=cap)
-            w = w + (1.0 - w.sum()) / w.numel()
+            # The residual is negative when the cap does not bind and the sum
+            # rounds to slightly more than 1. An underflowed weight then goes
+            # below 0 and multinomial rejects the distribution.
+            w = (w + (1.0 - w.sum()) / w.numel()).clamp_min(0)
+            w = w / w.sum()
             weights = w.repeat(dataset.duplicates).float()
             sampler = WeightedRandomSampler(
                 weights, num_samples=len(dataset), replacement=True,

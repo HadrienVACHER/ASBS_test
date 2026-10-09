@@ -18,9 +18,7 @@ import adjoint_samplers.utils.distributed_mode as distributed_mode
 
 # from adjoint_samplers.components.model import TemporalGate
 
-from adjoint_samplers.components.model import (
-    NeuralSCV, CondMean, CondScore, EGNNPotential, EGNNCondScore,
-)
+from adjoint_samplers.components.model import EGNNPotential
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -91,30 +89,33 @@ def main(cfg):
             sde=sde,
         )
 
-        neural_scv = NeuralSCV(dim=cfg.dim).to(device)
-        adjoint_matcher.neural_scv = neural_scv
-        adjoint_matcher.scv_optimizer = torch.optim.Adam(
-            neural_scv.parameters(), lr=1e-3
-        )
-        cond_mean = CondMean(dim=cfg.dim).to(device)
-        adjoint_matcher.cond_mean = cond_mean
-        adjoint_matcher.cond_optimizer = torch.optim.Adam(
-            cond_mean.parameters(), lr=1e-3
-        )
-        if cfg.get("n_particles") is not None:
-            cond_score = EGNNCondScore(
-                n_particles=int(cfg.n_particles),
-                spatial_dim=int(cfg.spatial_dim),
-                hidden_nf=128,
-                n_layers=4,
-            )
-        else:
-            cond_score = CondScore(dim=int(cfg.dim))
-        adjoint_matcher.cond_score = cond_score.to(device)
-        adjoint_matcher.cond_score_steps = 20
-        adjoint_matcher.cond_score_optimizer = torch.optim.Adam(
-            cond_score.parameters(), lr=1e-3,
-        )
+        # Stein control variate is off. prepare_target then returns the plain
+        # adjoint target. The bridge weight is the only change to ASBS.
+        # from adjoint_samplers.components.model import NeuralSCV, CondMean, CondScore, EGNNCondScore
+        # neural_scv = NeuralSCV(dim=cfg.dim).to(device)
+        # adjoint_matcher.neural_scv = neural_scv
+        # adjoint_matcher.scv_optimizer = torch.optim.Adam(
+        #     neural_scv.parameters(), lr=1e-3
+        # )
+        # cond_mean = CondMean(dim=cfg.dim).to(device)
+        # adjoint_matcher.cond_mean = cond_mean
+        # adjoint_matcher.cond_optimizer = torch.optim.Adam(
+        #     cond_mean.parameters(), lr=1e-3
+        # )
+        # if cfg.get("n_particles") is not None:
+        #     cond_score = EGNNCondScore(
+        #         n_particles=int(cfg.n_particles),
+        #         spatial_dim=int(cfg.spatial_dim),
+        #         hidden_nf=128,
+        #         n_layers=4,
+        #     )
+        # else:
+        #     cond_score = CondScore(dim=int(cfg.dim))
+        # adjoint_matcher.cond_score = cond_score.to(device)
+        # adjoint_matcher.cond_score_steps = 20
+        # adjoint_matcher.cond_score_optimizer = torch.optim.Adam(
+        #     cond_score.parameters(), lr=1e-3,
+        # )
 
         # Adjoint-sampling weights are the wrong terminal factor for ASBS.
         adjoint_matcher.use_is = corrector is None
