@@ -31,4 +31,4 @@ echo "Exécution sur le nœud : $(hostname) à $(date)"
 nvidia-smi -L
 
 # --- Lancement de l'expérience ---
-python train.py experiment=dw4_asbs seed=0 exp_name=dw4_asbs_is_v3
+python train.py experiment=dw4_asbs seed=0 exp_name=dw4_asbs_is_v3_scv
